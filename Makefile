@@ -4,7 +4,7 @@ CXX=g++
 #LIBOWFAT=../libowfat/
 #DIET=diet -Os
 
-CFLAGS=-Os -fomit-frame-pointer
+CFLAGS += -Os -fomit-frame-pointer
 #CFLAGS=-g
 
 all: fnord fnord-cgi fnord-idx

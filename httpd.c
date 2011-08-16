@@ -940,7 +940,6 @@ static struct stat st;
 static int doit(char* buf,int buflen,char* url,int explicit) {
   int fd=-1;
   char* accept;
-  time_t ims;
   while (url[0]=='/') ++url;
   getmimetype(url,explicit);
   {
@@ -967,9 +966,16 @@ ok:
     if (S_ISDIR(st.st_mode)) goto bad;
     /* see if the peer accepts MIME type */
     /* see if the document has been changed */
-    ims=timerfc(header(buf,buflen,"If-Modified-Since"));
-    //fprintf(stderr, "ims: %lu %lu %d\n", ims, st.st_mtime, st.st_mtime - ims);
-    if ((ims!=(time_t)-1) && (st.st_mtime<=ims)) { retcode=304; goto bad; }
+    {
+      char *field = header(buf,buflen,"If-Modified-Since");
+
+      if (field) {
+        time_t ims;
+        
+        ims = timerfc(field);
+        if ((ims!=(time_t)-1) && (st.st_mtime<=ims)) { retcode=304; goto bad; }
+      }
+    }
     rangestart=0; rangeend=st.st_size;
     if ((accept=header(buf,buflen,"Range"))) {
       /* format: "bytes=17-23", "bytes=23-" */
