@@ -1,9 +1,3 @@
-CC=gcc
-CXX=g++
-
-#LIBOWFAT=../libowfat/
-#DIET=diet -Os
-
 CFLAGS += -Os -fomit-frame-pointer
 #CFLAGS=-g
 
@@ -14,14 +8,14 @@ fnord: httpd
 	-strip -R .note -R .comment $@
 
 httpd: httpd.o libowfat.a
-	$(DIET) $(CC) -o $@ $^ $(CFLAGS)
+	$(CC) -o $@ $^ $(CFLAGS)
 
 fnord-cgi: httpd-cgi.o libowfat.a
-	$(DIET) $(CC) -o $@ $^ $(CFLAGS)
+	$(CC) -o $@ $^ $(CFLAGS)
 	-strip -R .note -R .comment $@
 
 fnord-idx: httpd-idx.o libowfat.a
-	$(DIET) $(CC) -o $@ $^ $(CFLAGS)
+	$(CC) -o $@ $^ $(CFLAGS)
 	-strip -R .note -R .comment $@
 
 libowfat.a: httpd.o buffer_1.o buffer_puts.o buffer_flush.o buffer_put.o \
@@ -32,19 +26,16 @@ str_len.o str_diff.o str_chr.o str_diffn.o str_start.o scan_ulong.o
 	-ranlib $@
 
 httpd.o: httpd.c
-	$(DIET) $(CC) -pipe $(CFLAGS) -c $^ -DFNORD=\"fnord/$(shell head -n 1 CHANGES|sed 's/://')\"
+	$(CC) -pipe $(CFLAGS) -c $^ -DFNORD=\"fnord/$(shell head -n 1 CHANGES|sed 's/://')\"
 
 httpd-cgi.o: httpd.c
-	$(DIET) $(CC) -pipe $(CFLAGS) -c httpd.c -o $@ -DCGI -DFNORD=\"fnord/$(shell head -n 1 CHANGES|sed 's/://')\"
+	$(CC) -pipe $(CFLAGS) -c httpd.c -o $@ -DCGI -DFNORD=\"fnord/$(shell head -n 1 CHANGES|sed 's/://')\"
 
 httpd-idx.o: httpd.c
-	$(DIET) $(CC) -pipe $(CFLAGS) -c httpd.c -o $@ -DDIR_LIST -DFNORD=\"fnord/$(shell head -n 1 CHANGES|sed 's/://')\"
+	$(CC) -pipe $(CFLAGS) -c httpd.c -o $@ -DDIR_LIST -DFNORD=\"fnord/$(shell head -n 1 CHANGES|sed 's/://')\"
 
 %.o: %.c
-	$(DIET) $(CC) -pipe $(CFLAGS) -c $^
-
-%.o: %.cpp
-	$(DIET) $(CXX) -pipe $(CFLAGS) -c $^
+	$(CC) -pipe $(CFLAGS) -c $^
 
 .PHONY: rename clean install server
 server: fnord
