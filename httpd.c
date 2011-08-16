@@ -660,11 +660,12 @@ static char* header(char* buf,int buflen,const char* hname) {
 }
 
 static char* encoding=0;
-static char* mimetype="text/plain";
+static char* mimetype="application/octet-stream";
 
 static struct mimeentry { const char* name, *type; } mimetab[] = {
-  { "html",	"text/html" },
-  { "htm",	"text/html" },
+  { "html",	"text/html; charset=UTF-8" },
+  { "htm",	"text/html; charset=UTF-8" },
+  { "txt",	"text/plain; charset=UTF-8" },
   { "css",	"text/css" },
   { "dvi",	"application/x-dvi" },
   { "ps",	"application/postscript" },
@@ -685,7 +686,6 @@ static struct mimeentry { const char* name, *type; } mimetab[] = {
   { "pac",	"application/x-ns-proxy-autoconfig" },
   { "sig",	"application/pgp-signature" },
   { "torrent",	"application/x-bittorrent" },
-  { "class",	"application/octet-stream" },
   { "js",	"application/x-javascript" },
   { "tar",	"application/x-tar" },
   { "zip",	"application/zip" },
@@ -763,58 +763,175 @@ static int findincommalist(const char* needle,const char* haystack) {
   return 1;
 }
 
-static int parsetime(const char*c,struct tm* x) {
-  unsigned long tmp;
-  c+=scan_ulong(c,&tmp); x->tm_hour=tmp;
-  if (*c!=':') return -1; ++c;
-  c+=scan_ulong(c,&tmp); x->tm_min=tmp;
-  if (*c!=':') return -1; ++c;
-  c+=scan_ulong(c,&tmp); x->tm_sec=tmp;
-  if (*c!=' ') return -1;
-  return 0;
-}
+/*
+ *   timerfc function Copyright 1996, Michiel Boland.
+ *   All rights reserved.
+ *
+ *   Redistribution and use in source and binary forms, with or
+ *   without modification, are permitted provided that the following
+ *   conditions are met:
+ *
+ *   1. Redistributions of source code must retain the above
+ *      copyright notice, this list of conditions and the following
+ *      disclaimer.
+ *
+ *   2. Redistributions in binary form must reproduce the above
+ *      copyright notice, this list of conditions and the following
+ *      disclaimer in the documentation and/or other materials
+ *      provided with the distribution.
+ *
+ *   3. The name of the author may not be used to endorse or promote
+ *      products derived from this software without specific prior
+ *      written permission.
+ *
+ *   THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY
+ *   EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
+ *   THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A
+ *   PARTICULAR PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR
+ *   BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+ *   EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED
+ *   TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+ *   DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+ *   ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+ *   LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING
+ *   IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
+ *   THE POSSIBILITY OF SUCH DAMAGE.
+ */
+static time_t timerfc(const char *s)
+{
+	static const int daytab[2][12] = {
+		{ 0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334 },
+		{ 0, 31, 60, 91, 121, 152, 182, 213, 244, 274, 305, 335 }
+	};
+	unsigned sec, min, hour, day, mon, year;
+	char month[3];
+	int c;
+	unsigned n;
+	char flag;
+	char state;
+	char isctime;
+	enum { D_START, D_END, D_MON, D_DAY, D_YEAR, D_HOUR, D_MIN, D_SEC };
 
-static time_t parsedate(const char*c) {
-  struct tm x;
-  int i;
-  unsigned long tmp;
-  if (!c) return (time_t)-1;
-  /* "Sun, 06 Nov 1994 08:49:37 GMT",
-   * "Sunday, 06-Nov-94 08:49:37 GMT" and
-   * "Sun Nov  6 08:49:37 1994" */
-  if (c[3]==',') c+=5; else
-  if (c[6]==',') c+=8; else {
-    c+=4;
-    for (i=0; i<12; ++i) {
-//      fprintf(stderr,"comparing %s to %.3s\n",c,months+i*3);
-      if (!strncasecmp(c,months+i*3,3)) {
-	x.tm_mon=i; break;
-      }
-    }
-    c+=4; if (*c==' ') ++c;
-    c+=scan_ulong(c,&tmp); x.tm_mday=tmp;
-    ++c;
-    if (parsetime(c,&x)) return (time_t)-1;
-    c+=9;
-    c+=scan_ulong(c,&tmp); x.tm_year=tmp-1900;
-    goto done;
-  }
-  c+=scan_ulong(c,&tmp); x.tm_mday=tmp;
-  ++c;
-  for (i=0; i<12; ++i)
-    if (!strncasecmp(c,months+i*3,3)) {
-      x.tm_mon=i; break;
-    }
-  c+=4;
-  c+=scan_ulong(c,&tmp);
-  if (tmp>1000) x.tm_year=tmp-1900; else
-    if (tmp<70) x.tm_year=tmp+100; else
-                x.tm_year=tmp;
-  ++c;
-  if (parsetime(c,&x)) return (time_t)-1;
-done:
-  x.tm_wday=x.tm_yday=x.tm_isdst=0;
-  return mktime(&x);
+	sec = 60;
+	min = 60;
+	hour = 24;
+	day = 32;
+	year = 1969;
+	isctime = 0;
+	month[0] = 0;
+	state = D_START;
+	n = 0;
+	flag = 1;
+	do {
+		c = *s++;
+		switch (state) {
+		case D_START:
+			if (c == ' ') {
+				state = D_MON;
+				isctime = 1;
+			} else if (c == ',')
+				state = D_DAY;
+			break;
+		case D_MON:
+			if (isalpha(c)) {
+				if (n < 3)
+					month[n++] = c;
+			} else {
+				if (n < 3)
+					return -1;
+				n = 0;
+				state = isctime ? D_DAY : D_YEAR;
+			}
+			break;
+		case D_DAY:
+			if (c == ' ' && flag)
+				;
+			else if (isdigit(c)) {
+				flag = 0;
+				n = 10 * n + (c - '0');
+			} else {
+				day = n;
+				n = 0;
+				state = isctime ? D_HOUR : D_MON;
+			}
+			break;
+		case D_YEAR:
+			if (isdigit(c))
+				n = 10 * n + (c - '0');
+			else {
+				year = n;
+				n = 0;
+				state = isctime ? D_END : D_HOUR;
+			}
+			break;
+		case D_HOUR:
+			if (isdigit(c))
+				n = 10 * n + (c - '0');
+			else {
+				hour = n;
+				n = 0;
+				state = D_MIN;
+			}
+			break;
+		case D_MIN:
+			if (isdigit(c))
+				n = 10 * n + (c - '0');
+			else {
+				min = n;
+				n = 0;
+				state = D_SEC;
+			}
+			break;
+		case D_SEC:
+			if (isdigit(c))
+				n = 10 * n + (c - '0');
+			else {
+				sec = n;
+				n = 0;
+				state = isctime ? D_YEAR : D_END;
+			}
+			break;
+		}
+	} while (state != D_END && c);
+	switch (month[0]) {
+	case 'A':
+		mon = (month[1] == 'p') ? 4 : 8;
+		break;
+	case 'D':
+		mon = 12;
+		break;
+	case 'F':
+		mon = 2;
+		break;
+	case 'J':
+		mon = (month[1] == 'a') ? 1 : ((month[2] == 'l') ? 7 : 6);
+		break;
+	case 'M':
+		mon = (month[2] == 'r') ? 3 : 5;
+		break;
+	case 'N':
+		mon = 11;
+		break;
+	case 'O':
+		mon = 10;
+		break;
+	case 'S':
+		mon = 9;
+		break;
+	default:
+		return -1;
+	}
+	if (year <= 100)
+		year += (year < 70) ? 2000 : 1900;
+	--mon;
+	--day;
+	if (sec >= 60 || min >= 60 || hour >= 60 || day >= 31)
+		return -1;
+	if (year < 1970)
+		return 0;
+	return sec + 60L * (min + 60L * (hour + 24L * ( day +
+	    daytab[year % 4 == 0 && (year % 100 || year % 400 == 0)][mon] +
+	    365L * (year - 1970L) + ((year - 1969L) >> 2))));
 }
 
 static struct stat st;
@@ -850,8 +967,9 @@ ok:
     if (S_ISDIR(st.st_mode)) goto bad;
     /* see if the peer accepts MIME type */
     /* see if the document has been changed */
-    ims=parsedate(header(buf,buflen,"If-Modified-Since"));
-    if (ims!=(time_t)-1 && st.st_mtime<=ims) { retcode=304; goto bad; }
+    ims=timerfc(header(buf,buflen,"If-Modified-Since"));
+    //fprintf(stderr, "ims: %lu %lu %d\n", ims, st.st_mtime, st.st_mtime - ims);
+    if ((ims!=(time_t)-1) && (st.st_mtime<=ims)) { retcode=304; goto bad; }
     rangestart=0; rangeend=st.st_size;
     if ((accept=header(buf,buflen,"Range"))) {
       /* format: "bytes=17-23", "bytes=23-" */

@@ -2,7 +2,7 @@ CC=gcc
 CXX=g++
 
 #LIBOWFAT=../libowfat/
-DIET=diet -Os
+#DIET=diet -Os
 
 CFLAGS=-Os -fomit-frame-pointer
 #CFLAGS=-g
