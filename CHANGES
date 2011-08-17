@@ -1,3 +1,10 @@
+1.11:
+  Fix if-modified-since date parsing
+  Make text content-types use charset=UTF-8
+  Change default content-type to application/octet-stream
+  Makefile no longer overrides CC and CPP from parent makes
+  Don't send Content-type if there's no content
+
 1.10:
   have fallback in case sendfile fails
 
