@@ -24,6 +24,20 @@
 #include "byte.h"
 #include "scan.h"
 
+/* Some things I use for debugging */
+#ifdef DUMP
+#  include <stdio.h>
+#  define DUMPf(fmt, args...) fprintf(stderr, "%s:%s:%d " fmt "\n", __FILE__, __FUNCTION__, __LINE__, ##args)
+#else
+#  define DUMPf(fmt, args...)
+#endif
+#define DUMP() DUMPf("")
+#define DUMP_d(v) DUMPf("%s = %d", #v, v)
+#define DUMP_x(v) DUMPf("%s = 0x%x", #v, v)
+#define DUMP_s(v) DUMPf("%s = %s", #v, v)
+#define DUMP_c(v) DUMPf("%s = %c", #v, v)
+#define DUMP_p(v) DUMPf("%s = %p", #v, v)
+
 /* uncomment the following line to enable support for CGI */
 // #define CGI
 
@@ -403,6 +417,7 @@ static void do_cgi(const char* pathinfo,const char* const* envp) {
     *tmp=0; ++tmp;
     cgi_env[++i]=tmp;
     tmp+=str_copy(tmp,"CONTENT_LENGTH=");
+    DUMP_s(content_len);
     tmp+=str_copy(tmp,content_len);
     *tmp=0; ++tmp;
   }
@@ -639,23 +654,25 @@ static char* header(char* buf,int buflen,const char* hname) {
   int slen=str_len(hname);
   int i;
   char* c;
-//  printf("buflen %d, slen %d\n",buflen,slen);
+
+  DUMPf("buflen %d, slen %d",buflen,slen);
   for (i=0; i<buflen-slen-2; ++i) {
-//    printf("%.5s %s\n",buf+i,hname);
+    DUMPf("[%.*s] [%s]",slen,buf+i,hname);
     if (!strncasecmp(buf+i,hname,slen)) {
-//      printf("a %.20s\n",buf+i);
-      if (i && buf[i-1]!='\n') continue;
-//      printf("b %.20s\n",buf+i);
+      DUMP();
+      if (i && (buf[i-1] && buf[i-1]!='\n')) continue;
+      DUMP();
       if (buf[i+slen]!=':' || buf[i+slen+1]!=' ') continue;
-//      printf("c %.20s\n",buf+i);
+      DUMP();
       c=buf+i+slen+2;
       i+=slen+2;
-      for (; i<buflen; ++i)
-//	printf("%c\n",buf[i]);
+      for (; i<buflen; ++i) {
+        DUMP_c(buf[i]);
 	if (buf[i]==0 || buf[i]=='\n' || buf[i]=='\r') {
 	  buf[i]=0;
 	  break;
 	}
+      }
       return c;
     }
   }
