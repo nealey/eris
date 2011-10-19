@@ -266,10 +266,14 @@ static void badrequest(long code,const char *httpcomment,const char *message) {
   buffer_putulong(buffer_1,code);
   buffer_putspace(buffer_1);
   buffer_puts(buffer_1,httpcomment);
-  buffer_puts(buffer_1, "\r\nConnection: close\r\n\r\n");
+  buffer_puts(buffer_1, "\r\nConnection: close\r\n");
   if (message[0]) {
-    buffer_puts(buffer_1,"\r\nContent-Type: text/html");
+    buffer_puts(buffer_1,"Content-Length: ");
+    buffer_putulong(buffer_1,strlen(message));
+    buffer_puts(buffer_1,"\r\nContent-Type: text/html\r\n\r\n");
     buffer_puts(buffer_1,message);
+  } else {
+    buffer_puts(buffer_1,"\r\n");
   }
   buffer_flush(buffer_1);
   exit(0);

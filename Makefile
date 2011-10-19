@@ -1,3 +1,5 @@
+VERSION=$(shell head -n 1 CHANGES | tr -d :)
+
 CFLAGS += -Os -fomit-frame-pointer
 #CFLAGS=-g
 
@@ -26,13 +28,13 @@ str_len.o str_diff.o str_chr.o str_diffn.o str_start.o scan_ulong.o
 	-ranlib $@
 
 httpd.o: httpd.c
-	$(CC) -pipe $(CFLAGS) -c $^ -DFNORD=\"fnord/$(shell head -n 1 CHANGES|sed 's/://')\"
+	$(CC) -pipe $(CFLAGS) -c $^ -DFNORD=\"fnord/$(VERSION)\"
 
 httpd-cgi.o: httpd.c
-	$(CC) -pipe $(CFLAGS) -c httpd.c -o $@ -DCGI -DFNORD=\"fnord/$(shell head -n 1 CHANGES|sed 's/://')\"
+	$(CC) -pipe $(CFLAGS) -c httpd.c -o $@ -DCGI -DFNORD=\"fnord/$(VERSION)\"
 
 httpd-idx.o: httpd.c
-	$(CC) -pipe $(CFLAGS) -c httpd.c -o $@ -DDIR_LIST -DFNORD=\"fnord/$(shell head -n 1 CHANGES|sed 's/://')\"
+	$(CC) -pipe $(CFLAGS) -c httpd.c -o $@ -DDIR_LIST -DFNORD=\"fnord/$(VERSION)\"
 
 %.o: %.c
 	$(CC) -pipe $(CFLAGS) -c $^
@@ -48,10 +50,9 @@ install:
 	test -d /command || mkdir /command
 
 CURNAME=$(notdir $(shell pwd))
-VERSION=fnord-$(shell head -n 1 CHANGES|sed 's/://')
 
 tar: rename
-	cd .. && tar cvvf $(VERSION).tar.bz2 --use=bzip2 --exclude CVS --exclude bin-* --exclude .cvsignore --exclude default $(VERSION)
+	cd .. && tar cvvf fnord-$(VERSION).tar.bz2 --use=bzip2 --exclude CVS --exclude bin-* --exclude .cvsignore --exclude default fnord-$(VERSION)
 
 rename:
-	if test $(CURNAME) != $(VERSION); then cd .. && mv $(CURNAME) $(VERSION); fi
+	if test $(CURNAME) != fnord-$(VERSION); then cd .. && mv $(CURNAME) fnord-$(VERSION); fi
