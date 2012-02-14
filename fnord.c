@@ -84,10 +84,6 @@
  * equal sign ('='), fnord will throw away the URI part. */
 #define REDIRECT
 
-/* uncomment the following line to make fnord tarpit queries from
- * EmailSiphon (an email harvester for spammers) */
-#define TARPIT
-
 /* uncomment the following line to make fnord chroot to the current
  * working directory and drop privileges */
 #define CHROOT
@@ -677,6 +673,7 @@ static char* header(char* buf,int buflen,const char* hname) {
 	  break;
 	}
       }
+      while (*c==' ' || *c=='\t') ++c;
       return c;
     }
   }
@@ -720,6 +717,7 @@ static struct mimeentry { const char* name, *type; } mimetab[] = {
   { "xbm",	"image/x-xbitmap" },
   { "xpm",	"image/x-xpixmap" },
   { "xwd",	"image/x-xwindowdump" },
+  { "ico",  "image/x-icon" },
   { 0 } };
 
 /* try to find out MIME type and content encoding.
@@ -1030,7 +1028,7 @@ bad:
 }
 
 static void redirectboilerplate() {
-  buffer_puts(buffer_1,"HTTP/1.0 301 Go Away\r\nConnection: close\r\nLocation: ");
+  buffer_puts(buffer_1,"HTTP/1.0 301 Go Away\r\nConnection: close\r\nContent-Length: 0\r\nLocation: ");
 }
 
 static void handleredirect(const char *url,const char* origurl) {
@@ -1512,9 +1510,9 @@ handlenext:
 
   {
     char *tmp;
-    if ((tmp=header(buf,len,"User-Agent"))) ua=tmp;
-    if ((tmp=header(buf,len,"Referer"))) refer=tmp;
-    if ((tmp=header(buf,len,"Accept-Encoding"))) accept_enc=tmp;
+    ua=header(buf,len,"User-Agent");
+    refer=header(buf,len,"Referer");
+    accept_enc=header(buf,len,"Accept-Encoding");
 #ifdef KEEPALIVE
     if ((tmp=header(buf,len,"Connection"))) {	/* see if it's "keep-alive" or "close" */
       if (!strcasecmp(tmp,"keep-alive"))
@@ -1524,13 +1522,13 @@ handlenext:
     }
 #endif
 #ifdef CGI
-    if ((tmp=header(buf,len,"Cookie"))) cookie=tmp;
-    if ((tmp=header(buf,len,"Authorization"))) auth_type=tmp;
+    cookie=header(buf,len,"Cookie");
+    auth_type=header(buf,len,"Authorization");
     if (method==POST) {
-      if ((tmp=header(buf,len,"Content-Type")))  content_type=tmp;
-      if ((tmp=header(buf,len,"Content-Length"))) content_len=tmp;
-      if (tmp) {
-	scan_ulong(tmp,&post_len);
+      content_type=header(buf,len,"Content-Type");
+      content_len=header(buf,len,"Content-Length");
+      if (content_len) {
+	scan_ulong(content_len,&post_len);
 	post_miss=buf+len+1;
 	post_mlen=in-len-1;
 	if (post_len<=post_mlen) post_mlen=post_len;
@@ -1538,10 +1536,6 @@ handlenext:
     }
 #endif
   }
-
-#ifdef TARPIT
-  if (str_equal(ua,"EmailSiphon")) { sleep(120); exit(0); }
-#endif
 
   port=getenv("TCPLOCALPORT");
   if (!port) port="80";
