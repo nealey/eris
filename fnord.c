@@ -22,10 +22,14 @@
 #include <sys/mman.h>
 #include <limits.h>
 
+#include "str.c"
+
 /*
  * Some things I use for debugging 
  */
-#ifdef DUMP
+#define XXNODUMP
+
+#ifndef NODUMP
 #define DUMPf(fmt, args...) fprintf(stderr, "%s:%s:%d " fmt "\n", __FILE__, __FUNCTION__, __LINE__, ##args)
 #else
 #define DUMPf(fmt, args...)
@@ -157,7 +161,7 @@ static long     retcode = 404;  /* used for logging code */
 char           *host = "?";     /* Host: header */
 char           *port;           /* also Host: header, :80 part */
 char           *args;           /* URL behind ? (for CGIs) */
-char           *url;            /* string between GET and HTTP/1.0,
+char           *url;            /* string between GET and HTTP/1.0, *
                                  * demangled */
 char           *ua = "?";       /* user-agent */
 char           *refer;          /* Referrer: header */
@@ -166,7 +170,7 @@ int             httpversion;    /* 0 == 1.0, 1 == 1.1 */
 #ifdef KEEPALIVE
 int             keepalive = 0;  /* should we keep the connection alive? */
 int             rootdir;        /* fd of root directory, so we can fchdir
-                                 * back for keep-alive */
+                                 * * back for keep-alive */
 #endif
 #ifdef CGI
 char           *cookie;         /* Referrer: header */
@@ -182,11 +186,11 @@ unsigned long   post_len = 0;
 #if _FILE_OFFSET_BITS == 64
 static unsigned long long rangestart,
                 rangeend;       /* for ranged queries */
+#define strtorange strtoull
 #else
 static unsigned long rangestart,
                 rangeend;       /* for ranged queries */
-#define scan_range scan_ulong
-#define buffer_putrange buffer_putulong
+#define strtorange strtoul
 #endif
 
 static const char days[] = "SunMonTueWedThuFriSat";
@@ -202,9 +206,10 @@ char           *remote_ident;
 
 static void
 sanitize(char *ua)
-{                               /* replace strings with underscores for
+{                               /* replace strings with underscores for *
                                  * logging */
     int             j;
+    if (! ua) return;
     for (j = 0; ua[j]; ++j)
         if (isspace(ua[j]))
             ua[j] = '_';
@@ -215,8 +220,7 @@ dolog(off_t len)
 {                               /* write a log line to stderr */
     sanitize(host);
     sanitize(ua);
-    if (refer)
-        sanitize(refer);
+    sanitize(refer);
 
     fprintf(stderr, "%s %d %d %s %s %s %s\n",
             remote_ip ? remote_ip : "0.0.0.0",
@@ -229,22 +233,21 @@ dolog(off_t len)
 static void
 badrequest(long code, const char *httpcomment, const char *message)
 {
+    DUMP();
     retcode = code;
+    DUMP();
     dolog(0);
-    buffer_puts(buffer_1, "HTTP/1.0 ");
-    buffer_putulong(buffer_1, code);
-    buffer_putspace(buffer_1);
-    buffer_puts(buffer_1, httpcomment);
-    buffer_puts(buffer_1, "\r\nConnection: close\r\n");
-    if (message[0]) {
-        buffer_puts(buffer_1, "Content-Length: ");
-        buffer_putulong(buffer_1, strlen(message));
-        buffer_puts(buffer_1, "\r\nContent-Type: text/html\r\n\r\n");
-        buffer_puts(buffer_1, message);
+    DUMP();
+    printf("HTTP/1.0 %d %s\r\nConnection: close\r\n", code, httpcomment);
+    if (message && message[0]) {
+        printf("Content-Length: %d\r\nContent-Type: text/html\r\n\r\n",
+               strlen(message));
+        fputs(message, stdout);
     } else {
-        buffer_puts(buffer_1, "\r\n");
+        printf("\r\n", stdout);
     }
-    buffer_flush(buffer_1);
+    DUMP();
+    fflush(stdout);
     exit(0);
 }
 
@@ -436,8 +439,8 @@ do_cgi(const char *pathinfo, const char *const *envp)
         cgi_env[++i] = tmp;
         tmp += str_copy(tmp, "PATH_TRANSLATED=");
         tmp +=
-            realpath(pathinfo, tmp) ? str_len(tmp) : str_copy(tmp,
-                                                              pathinfo);
+            realpath(pathinfo, tmp) ? strlen(tmp) : str_copy(tmp,
+                                                             pathinfo);
         ++tmp;
     }
 
@@ -452,7 +455,7 @@ do_cgi(const char *pathinfo, const char *const *envp)
     /*
      * argv 
      */
-    if (args && (args[str_chr(args, '=')] == 0)) {
+    if (args && (strchr(args, '=') == 0)) {
         int             n = 3;
         for (i = 0; args[i]; ++i)
             if (args[i] == '+')
@@ -519,10 +522,11 @@ cgi_send_correct_http(const char *s, unsigned int sl)
             ++i;
             goto out_nl;
         } else {
-            if (s[i] != '\n')
-                buffer_put(buffer_1, s + i, 1);
-            else {
-              out_nl:buffer_put(buffer_1, "\r\n", 2);
+            if (s[i] != '\n') {
+                putchar(s[i]);
+            } else {
+              out_nl:
+                printf("\r\n");
                 if (ch == '\n') {
                     ++i;
                     break;
@@ -531,7 +535,7 @@ cgi_send_correct_http(const char *s, unsigned int sl)
         }
         ch = s[i];
     }
-    buffer_put(buffer_1, s + i, sl - i);
+    printf("%.*s", sl - i, s + i);
 }
 
 static void
@@ -590,29 +594,26 @@ start_cgi(int nph, const char *pathinfo, const char *const *envp)
                     if (startup) {
                         startup = 0;
                         if (nph) {      /* NPH-CGI */
-                            buffer_put(buffer_1, ibuf, n);
-                            scan_ulong(ibuf + 9, &retcode);     /* only
-                                                                 * get
-                                                                 * error
-                                                                 * code /
-                                                                 * str_len("HTTP/x.x 
-                                                                 * ")==9 */
+                            printf("%.*s", n, ibuf);
+                            /*
+                             * skip HTTP/x.x 
+                             */
+                            retcode = strtoul(ibuf + 9, NULL, 10);
                         } else {        /* CGI */
-                            if (byte_diff(ibuf, 10, "Location: ") == 0) {
+                            if (memcmp(ibuf, "Location: ", 10) == 0) {
                                 retcode = 302;
-                                buffer_puts(buffer_1,
-                                            "HTTP/1.0 302 CGI-Redirect\r\nConnection: close\r\n");
+                                printf
+                                    ("HTTP/1.0 302 CGI-Redirect\r\nConnection: close\r\n");
                                 signal(SIGCHLD, SIG_IGN);
                                 cgi_send_correct_http(ibuf, n);
-                                buffer_flush(buffer_1);
+                                fflush(stdout);
                                 dolog(0);
                                 exit(0);
                             } else {
                                 retcode = 200;
-                                buffer_puts(buffer_1,
-                                            "HTTP/1.0 200 OK\r\nServer: "
-                                            FNORD
-                                            "\r\nPragma: no-cache\r\nConnection: close\r\n");
+                                printf("HTTP/1.0 200 OK\r\nServer: "
+                                       FNORD
+                                       "\r\nPragma: no-cache\r\nConnection: close\r\n");
                                 signal(SIGCHLD, SIG_IGN);
                                 cgi_send_correct_http(ibuf, n);
                             }
@@ -622,7 +623,7 @@ start_cgi(int nph, const char *pathinfo, const char *const *envp)
                      * non startup 
                      */
                     else {
-                        buffer_put(buffer_1, ibuf, n);
+                        printf("%.*s", n, ibuf);
                     }
                     size += n;
                     if (pfd[0].revents & POLLHUP)
@@ -652,16 +653,13 @@ start_cgi(int nph, const char *pathinfo, const char *const *envp)
                         badrequest(500, "Internal Server Error",
                                    "Looks like the CGI crashed.");
                     else {
-                        buffer_puts(buffer_1, "\n\n");
-                        buffer_puts(buffer_1,
-                                    "Looks like the CGI crashed.");
-                        buffer_puts(buffer_1, "\n\n");
+                        printf("\n\nLooks like the CGI crashed.\n\n");
                         break;
                     }
                 }
             }
 
-            buffer_flush(buffer_1);
+            fflush(stdout);
             dolog(size);
 #ifdef TCP_CORK
             {
@@ -706,7 +704,7 @@ fromhex(int c)
 static char    *
 header(char *buf, int buflen, const char *hname)
 {
-    int             slen = str_len(hname);
+    int             slen = strlen(hname);
     int             i;
     char           *c;
 
@@ -793,14 +791,14 @@ getmimetype(char *url, int explicit)
 {
     char            save;
     int             ext;
-    ext = str_len(url);
+    ext = strlen(url);
     while (ext > 0 && url[ext] != '.' && url[ext] != '/')
         --ext;
     if (url[ext] == '.') {
         ++ext;
-        if (str_equal(url + ext, "bz2"))
+        if (!strcmp(url + ext, "bz2"))
             goto octetstream;
-        if (str_equal(url + ext, "gz")) {
+        if (!strcmp(url + ext, "gz")) {
             if (!encoding) {
                 if (explicit)
                     goto octetstream;
@@ -815,7 +813,7 @@ getmimetype(char *url, int explicit)
         } else {
             int             i;
             for (i = 0; mimetab[i].name; ++i)
-                if (str_equal(mimetab[i].name, url + ext)) {
+                if (!strcmp(mimetab[i].name, url + ext)) {
                     mimetype = (char *) mimetab[i].type;
                     break;
                 }
@@ -833,8 +831,8 @@ matchcommalist(const char *needle, const char *haystack)
     /*
      * return nonzero if match was found 
      */
-    int             len = str_len(needle);
-    if (!byte_equal(needle, len, haystack))
+    int             len = strlen(needle);
+    if (strncmp(needle, haystack, len))
         return 0;
     switch (haystack[len]) {
     case ';':
@@ -910,7 +908,7 @@ findincommalist(const char *needle, const char *haystack)
  *   IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
  *   THE POSSIBILITY OF SUCH DAMAGE.
  */
-static time_t
+static          time_t
 timerfc(const char *s)
 {
     static const int daytab[2][12] = {
@@ -1129,19 +1127,16 @@ doit(char *buf, int buflen, char *url, int explicit)
              * format: "bytes=17-23", "bytes=23-" 
              */
             if (!strncmp(accept, "bytes=", 6)) {
-                int             i;
                 accept += 6;
-                i = scan_range(accept, &rangestart);
-                if (i) {
-                    accept += i;
-                    if (*accept == '-') {
-                        ++accept;
-                        if (*accept) {
-                            i = scan_range(accept, &rangeend);
-                            if (!i)
-                                rangeend = st.st_size;
-                            else
-                                ++rangeend;
+                rangestart = strtorange(accept, &accept, 10);
+                if (*accept == '-') {
+                    ++accept;
+                    if (*accept) {
+                        rangeend = strtorange(accept, &accept, 10);
+                        if (!*accept) {
+                            rangeend = st.st_size;
+                        } else {
+                            ++rangeend;
                         }
                     }
                 }
@@ -1162,8 +1157,8 @@ doit(char *buf, int buflen, char *url, int explicit)
 static void
 redirectboilerplate()
 {
-    buffer_puts(buffer_1,
-                "HTTP/1.0 301 Go Away\r\nConnection: close\r\nContent-Length: 0\r\nLocation: ");
+    printf
+        ("HTTP/1.0 301 Go Away\r\nConnection: close\r\nContent-Length: 0\r\nLocation: ");
 }
 
 static void
@@ -1181,27 +1176,27 @@ handleredirect(const char *url, const char *origurl)
          * el-cheapo redirection 
          */
         redirectboilerplate();
-        buffer_put(buffer_1, symlink, len);
+        printf("%.*s", len, symlink);
 #ifdef OLD_STYLE_REDIRECT
       fini:
 #endif
         retcode = 301;
-        buffer_puts(buffer_1, "\r\n\r\n");
+        printf("\r\n\r\n");
         dolog(0);
-        buffer_flush(buffer_1);
+        fflush(stdout);
         exit(0);
     }
 #ifdef OLD_STYLE_REDIRECT
     if ((env = getenv("REDIRECT_HOST"))) {
         redirectboilerplate();
-        buffer_puts(buffer_1, env);
+        fputs(env, stdout);
         while (*origurl == '/')
             ++origurl;
-        buffer_puts(buffer_1, origurl);
+        fputs(origurl, stdout);
         goto fini;
     } else if ((env = getenv("REDIRECT_URI"))) {
         redirectboilerplate();
-        buffer_puts(buffer_1, env);
+        fputs(env, stdout);
         goto fini;
     }
 #endif
@@ -1216,38 +1211,20 @@ hdl_encode_html(const char *s, unsigned int sl)
         unsigned char   ch = s[i];
         if (ch > 159) {
           encode_dec:
-            buffer_puts(buffer_1, "&#");
-            buffer_putulong(buffer_1, ch);
-            buffer_puts(buffer_1, ";");
+            printf("&#%lu;", ch);
         } else if ((ch > 128) || (ch < 32)) {
-            buffer_put(buffer_1, " ", 1);
+            putchar('_');
         } else if (ch == '"')
-            buffer_puts(buffer_1, "&quot;");
+            fputs("&quot;", stdout);
         else if (ch == '&')
-            buffer_puts(buffer_1, "&amp;");
+            fputs("&amp;", stdout);
         else if (ch == '<')
-            buffer_puts(buffer_1, "&lt;");
+            fputs("&lt;", stdout);
         else if (ch == '>')
-            buffer_puts(buffer_1, "&gt;");
+            fputs("&gt;", stdout);
         else
-            buffer_put(buffer_1, &ch, 1);
+            putchar(ch);
     }
-}
-static int
-buffer_puthex(unsigned int i)
-{
-    unsigned int    t;
-    char            x[4];
-    t = '0' | (i >> 4) & 0xf;
-    if (t > '9')
-        t += 39;
-    i = '0' | (i & 0xf);
-    if (i > '9')
-        i += 39;
-    x[0] = '%';
-    x[1] = t;
-    x[2] = i;
-    return buffer_put(buffer_1, x, 3);
 }
 static void
 hdl_encode_uri(const char *s, unsigned int sl)
@@ -1256,23 +1233,23 @@ hdl_encode_uri(const char *s, unsigned int sl)
     for (i = 0; i < sl; ++i) {
         unsigned char   ch = s[i];
         if ((ch != '%') && (ch > 32) && (ch < 127))
-            buffer_put(buffer_1, &ch, 1);
+            putchar(ch);
         else
-            buffer_puthex(ch);
+            printf("%%%02x", ch);
     }
 }
 static void
 handledirlist(const char *origurl)
 {
     DIR            *dir;
-    unsigned int    nl = str_len(origurl);
+    unsigned int    nl = strlen(origurl);
     const char     *nurl = origurl;
     url = (char *) origurl;
     while (nurl[0] == '/')
         ++nurl;
     if (nurl <= origurl)
         return;
-    nl = str_len(nurl);
+    nl = strlen(nurl);
     if (nurl[nl - 1] != '/')
         return;
     if (!stat(nl ? nurl : ".", &st) && (S_ISDIR(st.st_mode))
@@ -1283,38 +1260,37 @@ handledirlist(const char *origurl)
             struct dirent  *de;
             unsigned int    i,
                             size = 32 + nl;
-            buffer_puts(buffer_1,
-                        "HTTP/1.0 200 OK\r\nServer: " FNORD
-                        "\r\nConnection: close\r\n");
-            buffer_puts(buffer_1, "Content-Type: text/html\r\n");
-            buffer_puts(buffer_1, "\r\n<h3>Directory Listing: /");
+            fputs("HTTP/1.0 200 OK\r\nServer: " FNORD
+                 "\r\nConnection: close\r\n", stdout);
+            fputs("Content-Type: text/html\r\n", stdout);
+            fputs("\r\n<h3>Directory Listing: /", stdout);
             hdl_encode_html(nurl, nl);
-            buffer_puts(buffer_1, "</h3>\n<pre>\n");
+            fputs("</h3>\n<pre>\n", stdout);
             if (nl != 0) {
                 for (i = nl - 2; i > 0; --i)
                     if (nurl[i] == '/')
                         break;
-                buffer_puts(buffer_1, "<a href=\"");
-                buffer_puts(buffer_1, "/");
+                fputs("<a href=\"", stdout);
+                fputs("/", stdout);
                 hdl_encode_uri(nurl, i);
                 if (i > 0)
-                    buffer_puts(buffer_1, "/");
-                buffer_puts(buffer_1, "\">Parent directory");
-                buffer_puts(buffer_1, "</a>\n");
+                    fputs("/", stdout);
+                fputs("\">Parent directory", stdout);
+                fputs("</a>\n", stdout);
                 size += 40 + i;
             }
             while (de = readdir(dir)) {
                 char            symlink[1024];
                 char           *p = de->d_name;
                 unsigned int    pl,
-                                dl = str_len(de->d_name);
+                                dl = strlen(de->d_name);
                 pl = dl;
                 if (de->d_name[0] == '.')
                     continue;   /* hidden files -> skip */
                 if (lstat(de->d_name, &st))
                     continue;   /* can't stat -> skip */
                 if (S_ISDIR(st.st_mode))
-                    buffer_puts(buffer_1, "[DIR] ");
+                    fputs("[DIR] ", stdout);
                 else if (S_ISLNK(st.st_mode)) {
 #ifdef SYSTEM_SYMLINK_DEREF
                     if (stat(de->d_name, &st))  /* dangling symlink */
@@ -1324,29 +1300,29 @@ handledirlist(const char *origurl)
                             continue;
                         p = symlink;
                     }
-                    buffer_puts(buffer_1, "[LNK] ");    /* a symlink to
-                                                         * something ... */
+                    fputs("[LNK] ", stdout);    /* a symlink to *
+                                                 * something ... */
                 } else if (S_ISREG(st.st_mode))
-                    buffer_puts(buffer_1, "[TXT] ");
+                    fputs("[TXT] ", stdout);
                 else
                     continue;   /* not a file we can provide -> skip */
                 /*
                  * write a href 
                  */
-                buffer_puts(buffer_1, "<a href=\"");
+                fputs("<a href=\"", stdout);
                 hdl_encode_uri(p, pl);
                 if (S_ISDIR(st.st_mode))
-                    buffer_puts(buffer_1, "/"), ++size;
-                buffer_puts(buffer_1, "\">");
+                    fputs("/", stdout), ++size;
+                fputs("\">", stdout);
                 if (de->d_name[0] == ':')
                     de->d_name[0] = '.';        /* fnord special ... */
                 hdl_encode_html(de->d_name, dl);
-                buffer_puts(buffer_1, "</a>\n");
+                fputs("</a>\n", stdout);
                 size += 22 + (dl << 1);
             }
             closedir(dir);
-            buffer_puts(buffer_1, "</pre>\n");
-            buffer_flush(buffer_1);
+            fputs("</pre>\n", stdout);
+            fflush(stdout);
             retcode = 200;
             dolog(size);
             exit(0);
@@ -1360,12 +1336,12 @@ static int
 handleindexcgi(const char *testurl, const char *origurl, char *space)
 {
     unsigned int    ul,
-                    ol = str_len(origurl);
+                    ol = strlen(origurl);
     char           *test;
     while (testurl[0] == '/')
         ++testurl, --ol;
-    ul = str_len(testurl);
-    if (str_diff(testurl + ol, "index.html"))
+    ul = strlen(testurl);
+    if (strcmp(testurl + ol, "index.html"))
         return 0;               /* no request for index.html */
     test = space;
     ++test;
@@ -1395,7 +1371,7 @@ get_ucspi_env(void)
 {
     char           *ucspi = getenv("PROTO");
     if (ucspi) {
-        char           *buf = alloca(str_len(ucspi) + 20);
+        char           *buf = alloca(strlen(ucspi) + 20);
         unsigned int    tmp = str_copy(buf, ucspi);
         buf[tmp + str_copy(buf + tmp, "REMOTEIP")] = 0;
         remote_ip = getenv(buf);
@@ -1549,8 +1525,8 @@ serve_static_data(int fd)
         read(fd, tmp, len);     /* if read fails, we can't back down now.
                                  * We already committed on the
                                  * content-length */
-        buffer_put(buffer_1, tmp, len);
-        buffer_flush(buffer_1);
+        fwrite(tmp, len, 1, stdout);
+        fflush(stdout);
         return 0;
     }
 #ifdef USE_SENDFILE
@@ -1563,7 +1539,7 @@ serve_static_data(int fd)
             corked = 1;
         }
 #endif
-        buffer_flush(buffer_1);
+        fflush(stdout);
         {
             off_t           l = rangeend - rangestart;
             do {
@@ -1581,7 +1557,7 @@ serve_static_data(int fd)
         return 0;
     }
 #else
-    buffer_flush(buffer_1);
+    fflush(stdout);
 #ifdef TCP_CORK
     {
         int             one = 1;
@@ -1625,7 +1601,10 @@ main(int argc, char *argv[], const char *const *envp)
             goto error500;
         if ((tmp = getenv("GID"))) {
             long            gid;
-            if (tmp[scan_ulong(tmp, &gid)] == 0) {
+            char           *endptr;
+
+            gid = strtoul(tmp, &endptr, 0);
+            if (*endptr == 0) {
                 gid_t           gi = gid;
                 if (setgroups(1, &gi))
                     goto error500;
@@ -1634,7 +1613,10 @@ main(int argc, char *argv[], const char *const *envp)
         }
         if ((tmp = getenv("UID"))) {
             long            uid;
-            if (tmp[scan_ulong(tmp, &uid)] == 0) {
+            char           *endptr;
+
+            uid = strtoul(tmp, &endptr, 0);
+            if (*endptr == 0) {
                 if (setuid(uid))
                     goto error500;
             } else
@@ -1711,16 +1693,16 @@ main(int argc, char *argv[], const char *const *envp)
     origurl = url;
 
     {
-        int             nl = str_chr(buf, '\r');
-        int             space = str_chr(url, ' ');
+        char           *nl = strchr(buf, '\r');
+        char           *space = strchr(url, ' ');
         if (space >= nl)
             badrequest(400, "Bad Request",
                        "<title>Bad Request</title>HTTP/0.9 not supported");
-        if (str_diffn(url + space + 1, "HTTP/1.", 7))
+        if (strncmp(space + 1, "HTTP/1.", 7))
             badrequest(400, "Bad Request",
                        "<title>Bad Request</title>Only HTTP 1.x supported");
-        url[space] = 0;
-        httpversion = url[space + 8] - '0';
+        *space = 0;
+        httpversion = space[8] - '0';
 #ifdef KEEPALIVE
         keepalive = 0;
 #endif
@@ -1779,7 +1761,7 @@ main(int argc, char *argv[], const char *const *envp)
 #ifdef KEEPALIVE
         if ((tmp = header(buf, len, "Connection"))) {   /* see if it's
                                                          * "keep-alive" or 
-                                                         * "close" */
+                                                         * * "close" */
             if (!strcasecmp(tmp, "keep-alive"))
                 keepalive = 1;
             else if (!strcasecmp(tmp, "close"))
@@ -1813,13 +1795,13 @@ main(int argc, char *argv[], const char *const *envp)
         if (!host)
             i = 100;
         else
-            i = str_len(host) + 7;
+            i = strlen(host) + 7;
         Buf = alloca(i);
         if (!host) {
             char           *ip = getenv("TCPLOCALIP");
             if (!ip)
                 ip = "127.0.0.1";
-            if (str_len(ip) + str_len(port) > 90)
+            if (strlen(ip) + strlen(port) > 90)
                 exit(101);
             host = Buf;
             i = str_copy(Buf, ip);
@@ -1827,8 +1809,8 @@ main(int argc, char *argv[], const char *const *envp)
             i += str_copy(Buf + i, port);
 #ifdef NORMALIZE_HOST
         } else {
-            int             colon = str_chr(host, ':');
-            if (host[colon] == 0) {
+            char           *colon = strchr(host, ':');
+            if (*colon == 0) {
                 i = str_copy(Buf, host);
                 i += str_copy(Buf + i, ":");
                 i += str_copy(Buf + i, port);
@@ -1836,7 +1818,7 @@ main(int argc, char *argv[], const char *const *envp)
             }
 #endif
         }
-        for (i = str_len(host); i >= 0; --i)
+        for (i = strlen(host); i >= 0; --i)
             if ((host[i] = tolower(host[i])) == '/')
               hostb0rken:
                 badrequest(400, "Bad Request",
@@ -1860,17 +1842,17 @@ main(int argc, char *argv[], const char *const *envp)
                  */
                 redirectboilerplate();
                 if (symlink[0] == '=') {
-                    buffer_put(buffer_1, symlink + 1, linklen - 1);
+                    fwrite(symlink + 1, linklen - 1, 1, stdout);
                 } else {
-                    buffer_put(buffer_1, symlink, linklen);
+                    fwrite(symlink, linklen, 1, stdout);
                     while (url[0] == '/')
                         ++url;
-                    buffer_puts(buffer_1, url);
+                    fputs(url, stdout);
                 }
                 retcode = 301;
-                buffer_puts(buffer_1, "\r\n\r\n");
+                fputs("\r\n\r\n", stdout);
                 dolog(0);
-                buffer_flush(buffer_1);
+                fflush(stdout);
                 exit(0);
             }
 #endif
@@ -1913,26 +1895,25 @@ main(int argc, char *argv[], const char *const *envp)
                 if (!WIFEXITED(status) || WEXITSTATUS(status)) {
                     retcode = 401;
                     dolog(0);
-                    buffer_puts(buffer_1,
-                                "HTTP/1.0 401 Authorization Required\r\n"
-                                "WWW-Authenticate: Basic realm=\"");
-                    buffer_puts(buffer_1, host);
-                    buffer_puts(buffer_1, "\"\r\nConnection: close\r\n\r\n"
-                                "Access to this site is restricted.\r\n"
-                                "Please provide credentials.\r\n");
-                    buffer_flush(buffer_1);
+                    fputs("HTTP/1.0 401 Authorization Required\r\n"
+                         "WWW-Authenticate: Basic realm=\"", stdout);
+                    fputs(host, stdout);
+                    fputs("\"\r\nConnection: close\r\n\r\n"
+                         "Access to this site is restricted.\r\n"
+                         "Please provide credentials.\r\n", stdout);
+                    fflush(stdout);
                     exit(0);
                 }
             }
         }
     }
 #endif                          /* AUTH */
-    nurl = url + str_len(url);
+    nurl = url + strlen(url);
     if (nurl > url)
         --nurl;
     if (*nurl == '/') {
         int             i;
-        nurl = alloca(str_len(url) + 12);
+        nurl = alloca(strlen(url) + 12);
         i = str_copy(nurl, url);
         i += str_copy(nurl + i, "index.html");
         nurl[i] = 0;
@@ -1953,7 +1934,7 @@ main(int argc, char *argv[], const char *const *envp)
                 break;
             }
         if (pathinfo) {
-            int             len = str_len(pathinfo) + 1;
+            int             len = strlen(pathinfo) + 1;
             tmp = alloca(len);
             memcpy(tmp, pathinfo, len);
             *pathinfo = 0;
@@ -1992,14 +1973,14 @@ main(int argc, char *argv[], const char *const *envp)
             /*
              * look if file.gz is also there and acceptable 
              */
-            char           *fnord = alloca(str_len(url) + 4);
+            char           *fnord = alloca(strlen(url) + 4);
             int             i,
                             fd2,
                             trypng = 0;
             char           *oldencoding = encoding;
             char           *oldmimetype = mimetype;
             i = str_copy(fnord, url);
-            if (i > 4 && str_equal(fnord + i - 4, ".gif")) {
+            if (i > 4 && !strcmp(fnord + i - 4, ".gif")) {
                 trypng = 1;
                 str_copy(fnord + i - 3, "png");
             } else
@@ -2017,65 +1998,45 @@ main(int argc, char *argv[], const char *const *envp)
             retcode = 200;
             dolog(st.st_size);
             if (rangestart || rangeend != st.st_size)
-                buffer_puts(buffer_1,
-                            "HTTP/1.0 206 Partial Content\r\nServer: "
-                            FNORD "\r\nContent-Type: ");
+                fputs("HTTP/1.0 206 Partial Content\r\n", stdout);
             else
-                buffer_puts(buffer_1,
-                            "HTTP/1.0 200 OK\r\nServer: " FNORD
-                            "\r\nContent-Type: ");
-            buffer_puts(buffer_1, mimetype);
-            buffer_puts(buffer_1, "\r\n");
+                fputs("HTTP/1.0 200 OK\r\n", stdout);
+            fputs("Server: " FNORD "\r\nContent-Type: ", stdout);
+            fputs(mimetype, stdout);
+            fputs("\r\n", stdout);
 #ifdef KEEPALIVE
             switch (keepalive) {
             case -1:
-                buffer_puts(buffer_1, "Connection: close\r\n");
+                fputs("Connection: close\r\n", stdout);
                 break;
             case 1:
-                buffer_puts(buffer_1, "Connection: Keep-Alive\r\n");
+                fputs("Connection: Keep-Alive\r\n", stdout);
                 break;
             }
 #endif
             if (encoding) {
-                buffer_puts(buffer_1, "Content-Encoding: ");
-                buffer_puts(buffer_1, encoding);
-                buffer_puts(buffer_1, "\r\n");
+                printf("Content-Encoding: %s\r\n");
             }
-            buffer_puts(buffer_1, "Content-Length: ");
-            buffer_putrange(buffer_1, rangeend - rangestart);
-            buffer_puts(buffer_1, "\r\nLast-Modified: ");
+            printf("Content-Length: %lu\r\n", rangeend - rangestart);
+            printf("Last-Modified: ");
             {
                 struct tm      *x = gmtime(&st.st_mtime);
                 /*
                  * "Sun, 06 Nov 1994 08:49:37 GMT" 
                  */
-                buffer_put(buffer_1, days + 3 * x->tm_wday, 3);
-                buffer_puts(buffer_1, ", ");
-                buffer_put2digits(buffer_1, x->tm_mday);
-                buffer_puts(buffer_1, " ");
-                buffer_put(buffer_1, months + 3 * x->tm_mon, 3);
-                buffer_puts(buffer_1, " ");
-                buffer_put2digits(buffer_1, (x->tm_year + 1900) / 100);
-                buffer_put2digits(buffer_1, (x->tm_year + 1900) % 100);
-                buffer_puts(buffer_1, " ");
-                buffer_put2digits(buffer_1, x->tm_hour);
-                buffer_puts(buffer_1, ":");
-                buffer_put2digits(buffer_1, x->tm_min);
-                buffer_puts(buffer_1, ":");
-                buffer_put2digits(buffer_1, x->tm_sec);
-                buffer_puts(buffer_1, " GMT\r\n");
+                printf("%.3s, %02d %.3s %d %02d:%02d:%02d GMT\r\n",
+                       days + (3 * x->tm_wday),
+                       x->tm_mday,
+                       months + (3 * x->tm_mon),
+                       x->tm_year + 1900,
+                       x->tm_hour, x->tm_min, x->tm_sec);
             }
             if (rangestart || rangeend != st.st_size) {
-                buffer_puts(buffer_1,
-                            "Accept-Ranges: bytes\r\nContent-Range: bytes ");
-                buffer_putrange(buffer_1, rangestart);
-                buffer_puts(buffer_1, "-");
-                buffer_putrange(buffer_1, rangeend - 1);
-                buffer_puts(buffer_1, "/");
-                buffer_putrange(buffer_1, st.st_size);
-                buffer_puts(buffer_1, "\r\n");
+                printf
+                    ("Accept-Ranges: bytes\r\nContent-Range: bytes %lu-%lu/%lu\r\n",
+                     rangestart, rangeend - 1, st.st_size);
             }
-            buffer_puts(buffer_1, "\r\n");
+            fputs("\r\n", stdout);
             if (method == GET || method == POST) {
                 switch (serve_static_data(fd)) {
                 case 0:
@@ -2104,7 +2065,7 @@ main(int argc, char *argv[], const char *const *envp)
               error500:
                 retcode = 500;
             } else
-                buffer_flush(buffer_1);
+                fflush(stdout);
         }
     }
 #ifdef CHROOT
