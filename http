@@ -1,2 +1,0 @@
-#!/bin/sh
-tcpserver -RHl localhost 0 80 fnord-idx .

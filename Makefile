@@ -1,58 +1,14 @@
-VERSION=$(shell head -n 1 CHANGES | tr -d :)
+VERSION := $(shell head -n 1 CHANGES | tr -d :)
 
-CFLAGS += -Os -fomit-frame-pointer
-#CFLAGS=-g
+CFLAGS = -DFNORD='fnord/$(VERSION)'
 
 all: fnord fnord-cgi fnord-idx
 
-fnord: httpd
-	cp -p $^ $@
-	-strip -R .note -R .comment $@
+fnord-cgi: httpd.c
+fnord-cgi: CFLAGS += -DCGI
 
-httpd: httpd.o libowfat.a
-	$(CC) -o $@ $^ $(CFLAGS)
-
-fnord-cgi: httpd-cgi.o libowfat.a
-	$(CC) -o $@ $^ $(CFLAGS)
-	-strip -R .note -R .comment $@
-
-fnord-idx: httpd-idx.o libowfat.a
-	$(CC) -o $@ $^ $(CFLAGS)
-	-strip -R .note -R .comment $@
-
-libowfat.a: httpd.o buffer_1.o buffer_puts.o buffer_flush.o buffer_put.o \
-buffer_putulong.o buffer_2.o buffer_putspace.o buffer_stubborn.o \
-buffer_putflush.o str_copy.o fmt_ulong.o byte_diff.o byte_copy.o \
-str_len.o str_diff.o str_chr.o str_diffn.o str_start.o scan_ulong.o
-	ar cru $@ $^
-	-ranlib $@
-
-httpd.o: httpd.c
-	$(CC) -pipe $(CFLAGS) -c $^ -DFNORD=\"fnord/$(VERSION)\"
-
-httpd-cgi.o: httpd.c
-	$(CC) -pipe $(CFLAGS) -c httpd.c -o $@ -DCGI -DFNORD=\"fnord/$(VERSION)\"
-
-httpd-idx.o: httpd.c
-	$(CC) -pipe $(CFLAGS) -c httpd.c -o $@ -DDIR_LIST -DFNORD=\"fnord/$(VERSION)\"
-
-%.o: %.c
-	$(CC) -pipe $(CFLAGS) -c $^
-
-.PHONY: rename clean install server
-server: fnord
-	tcpserver -v -RHl localhost 0 8000 ./fnord
+fnord-idx: httpd.c
+fnord-idx: CFLAGS += -DDIR_LIST
 
 clean:
-	rm -f *.[oa] httpd fnord fnord-cgi fnord-idx
-
-install:
-	test -d /command || mkdir /command
-
-CURNAME=$(notdir $(shell pwd))
-
-tar: rename
-	cd .. && tar cvvf fnord-$(VERSION).tar.bz2 --use=bzip2 --exclude CVS --exclude bin-* --exclude .cvsignore --exclude default fnord-$(VERSION)
-
-rename:
-	if test $(CURNAME) != fnord-$(VERSION); then cd .. && mv $(CURNAME) fnord-$(VERSION); fi
+	rm -f *.[oa] fnord fnord-cgi fnord-idx
