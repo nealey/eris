@@ -22,8 +22,6 @@
 #include <sys/mman.h>
 #include <limits.h>
 
-#include "str.c"
-
 /*
  * Some things I use for debugging 
  */
@@ -222,9 +220,9 @@ dolog(off_t len)
     sanitize(ua);
     sanitize(refer);
 
-    fprintf(stderr, "%s %d %d %s %s %s %s\n",
+    fprintf(stderr, "%s %ld %lu %s %s %s %s\n",
             remote_ip ? remote_ip : "0.0.0.0",
-            retcode, len, host, ua, refer, url);
+            retcode, (unsigned long)len, host, ua, refer, url);
 }
 
 /*
@@ -233,20 +231,16 @@ dolog(off_t len)
 static void
 badrequest(long code, const char *httpcomment, const char *message)
 {
-    DUMP();
     retcode = code;
-    DUMP();
     dolog(0);
-    DUMP();
-    printf("HTTP/1.0 %d %s\r\nConnection: close\r\n", code, httpcomment);
+    printf("HTTP/1.0 %ld %s\r\nConnection: close\r\n", code, httpcomment);
     if (message && message[0]) {
-        printf("Content-Length: %d\r\nContent-Type: text/html\r\n\r\n",
-               strlen(message));
+        printf("Content-Length: %lu\r\nContent-Type: text/html\r\n\r\n",
+               (unsigned long) strlen(message));
         fputs(message, stdout);
     } else {
-        printf("\r\n", stdout);
+        fputs("\r\n", stdout);
     }
-    DUMP();
     fflush(stdout);
     exit(0);
 }
@@ -281,9 +275,11 @@ static const char *cgivars[CGIENVLEN] = {
 static int
 iscgivar(const char *s)
 {
+    int sl = strlen(s);
     register unsigned int i = 0;
+
     for (; i < CGIENVLEN; i++)
-        if (str_start(s, cgivars[i]))
+        if (! strncmp(s, cgivars[i], sl))
             return 1;
     return 0;
 }
@@ -297,13 +293,34 @@ elen(register const char *const *e)
     return i;
 }
 
+char *
+env_append(const char *key, const char *val)
+{
+    static char buf[MAXHEADERLEN * 2 + PATH_MAX + 200];
+    static char *p = buf;
+    char *ret = p;
+
+    if (! key) {
+        p = buf;
+        return NULL;
+    }
+
+    p = stpcpy(p, key);
+    *(p++) = '=';
+    if (val) {
+        p = stpcpy(p, val) + 1;
+    } else {
+        *(p++) = 0;
+    }
+
+    return ret;
+}
+
 static void
 do_cgi(const char *pathinfo, const char *const *envp)
 {
     const char     *method_name[] = { "?", "GET", "HEAD", "POST" };
-    char            cgi_env_buf[MAXHEADERLEN * 2 + PATH_MAX + 200];
     register unsigned int en = elen(envp);
-    char           *tmp = cgi_env_buf;
     char          **cgi_arg;
     register int    i;
     char          **cgi_env =
@@ -313,135 +330,31 @@ do_cgi(const char *pathinfo, const char *const *envp)
     cgi_env[1] = "SERVER_PROTOCOL=HTTP/1.0";
     cgi_env[2] = "SERVER_SOFTWARE=" FNORD;
 
-    cgi_env[3] = tmp;
-    tmp += str_copy(tmp, "SERVER_NAME=");
-    tmp += str_copy(tmp, host);
-    *tmp = 0;
-    ++tmp;
-
-    cgi_env[4] = tmp;
-    tmp += str_copy(tmp, "SERVER_PORT=");
-    tmp += str_copy(tmp, port);
-    *tmp = 0;
-    ++tmp;
-
-    cgi_env[5] = tmp;
-    tmp += str_copy(tmp, "REQUEST_METHOD=");
-    tmp += str_copy(tmp, method_name[method]);
-    *tmp = 0;
-    ++tmp;
-
-    cgi_env[6] = tmp;
-    tmp += str_copy(tmp, "REQUEST_URI=");
-    tmp += str_copy(tmp, uri);
-    *tmp = 0;
-    ++tmp;
-
-    cgi_env[7] = tmp;
-    tmp += str_copy(tmp, "SCRIPT_NAME=");
-    tmp += str_copy(tmp, url);
-    *tmp = 0;
-    ++tmp;
-
-    i = 7;
-    if (remote_ip) {
-        cgi_env[++i] = tmp;
-        tmp += str_copy(tmp, "REMOTE_ADDR=");
-        tmp += str_copy(tmp, remote_ip);
-        *tmp = 0;
-        ++tmp;
-    }
-
-    if (remote_port) {
-        cgi_env[++i] = tmp;
-        tmp += str_copy(tmp, "REMOTE_PORT=");
-        tmp += str_copy(tmp, remote_port);
-        *tmp = 0;
-        ++tmp;
-    }
-
-    if (remote_ident) {
-        cgi_env[++i] = tmp;
-        tmp += str_copy(tmp, "REMOTE_IDENT=");
-        tmp += str_copy(tmp, remote_ident);
-        *tmp = 0;
-        ++tmp;
-    }
-
-    if (ua) {
-        cgi_env[++i] = tmp;
-        tmp += str_copy(tmp, "HTTP_USER_AGENT=");
-        tmp += str_copy(tmp, ua);
-        *tmp = 0;
-        ++tmp;
-    }
-
-    if (cookie) {
-        cgi_env[++i] = tmp;
-        tmp += str_copy(tmp, "HTTP_COOKIE=");
-        tmp += str_copy(tmp, cookie);
-        *tmp = 0;
-        ++tmp;
-    }
-
-    if (refer) {
-        cgi_env[++i] = tmp;
-        tmp += str_copy(tmp, "HTTP_REFERER=");
-        tmp += str_copy(tmp, refer);
-        *tmp = 0;
-        ++tmp;
-    }
-
-    if (accept_enc) {
-        cgi_env[++i] = tmp;
-        tmp += str_copy(tmp, "HTTP_ACCEPT_ENCODING=");
-        tmp += str_copy(tmp, accept_enc);
-        *tmp = 0;
-        ++tmp;
-    }
-
-    if (auth_type) {
-        cgi_env[++i] = tmp;
-        tmp += str_copy(tmp, "AUTH_TYPE=");
-        tmp += str_copy(tmp, auth_type);
-        *tmp = 0;
-        ++tmp;
-    }
-
-    if (content_type) {
-        cgi_env[++i] = tmp;
-        tmp += str_copy(tmp, "CONTENT_TYPE=");
-        tmp += str_copy(tmp, content_type);
-        *tmp = 0;
-        ++tmp;
-        cgi_env[++i] = tmp;
-        tmp += str_copy(tmp, "CONTENT_LENGTH=");
-        DUMP_s(content_len);
-        tmp += str_copy(tmp, content_len);
-        *tmp = 0;
-        ++tmp;
-    }
-
-    if (args) {
-        cgi_env[++i] = tmp;
-        tmp += str_copy(tmp, "QUERY_STRING=");
-        tmp += str_copy(tmp, args);
-        *tmp = 0;
-        ++tmp;
-    }
-
+    i = 3;
+    env_append(NULL, NULL);
+    cgi_env[i++] = env_append("SERVER_NAME", host);
+    cgi_env[i++] = env_append("SERVER_PORT", port);
+    cgi_env[i++] = env_append("REQUEST_METHOD", method_name[method]);
+    cgi_env[i++] = env_append("REQUEST_URI", uri);
+    cgi_env[i++] = env_append("SCRIPT_NAME", url);
+    if (remote_ip)    cgi_env[i++] = env_append("REMOTE_ADDR", remote_ip);
+    if (remote_port)  cgi_env[i++] = env_append("REMOTE_PORT", remote_port);
+    if (remote_ident) cgi_env[i++] = env_append("REMOTE_IDENT", remote_ident);
+    if (ua)           cgi_env[i++] = env_append("HTTP_USER_AGENT", ua);
+    if (cookie)       cgi_env[i++] = env_append("HTTP_COOKIE", cookie);
+    if (refer)        cgi_env[i++] = env_append("HTTP_REFERER", refer);
+    if (accept_enc)   cgi_env[i++] = env_append("HTTP_ACCEPT_ENCODING", accept_enc);
+    if (auth_type)    cgi_env[i++] = env_append("AUTH_TYPE", auth_type);
+    if (content_type) cgi_env[i++] = env_append("CONTENT_TYPE", content_type);
+    if (content_type) cgi_env[i++] = env_append("CONTENT_LENGTH", content_len);
+    if (args)         cgi_env[i++] = env_append("QUERY_STRING", args);
     if (pathinfo) {
-        cgi_env[++i] = tmp;
-        tmp += str_copy(tmp, "PATH_INFO=");
-        tmp += str_copy(tmp, pathinfo);
-        *tmp = 0;
-        ++tmp;
-        cgi_env[++i] = tmp;
-        tmp += str_copy(tmp, "PATH_TRANSLATED=");
-        tmp +=
-            realpath(pathinfo, tmp) ? strlen(tmp) : str_copy(tmp,
-                                                             pathinfo);
-        ++tmp;
+        char *rp = realpath(pathinfo, NULL);
+
+        cgi_env[i++] = env_append("PATH_INFO", pathinfo);
+        if (! rp) rp = pathinfo;
+        cgi_env[i++] = env_append("PATH_TRANSLATED", rp);
+        if (rp != pathinfo) free(rp);
     }
 
     {
@@ -475,23 +388,31 @@ do_cgi(const char *pathinfo, const char *const *envp)
         cgi_arg[1] = 0;
     }
 
-    i = strrchr(url, '/') - url;
-    strncpy(tmp, url + 1, i);
-    tmp[i] = 0;
-    chdir(tmp);
+    {
+        char tmp[PATH_MAX];
 
-    /*
-     * program name 
-     */
-    cgi_arg[0] = tmp;
-    tmp[0] = '.';
-    tmp[str_copy(tmp + 1, url + i) + 1] = 0;
+        i = strrchr(url, '/') - url;
+        strncpy(tmp, url + 1, i);
+        tmp[i] = 0;
+        chdir(tmp);
+    }
 
-    /*
-     * start cgi 
-     */
-    execve(cgi_arg[0], cgi_arg, cgi_env);
-    raise(SIGQUIT);             /* gateway unavailable. */
+    { 
+        char tmp[PATH_MAX];
+
+        /*
+         * program name 
+         */
+        cgi_arg[0] = tmp;
+        tmp[0] = '.';
+        strcpy(tmp + 1, url + i);
+
+        /*
+         * start cgi 
+         */
+        execve(cgi_arg[0], cgi_arg, cgi_env);
+        raise(SIGQUIT);             /* gateway unavailable. */
+    }
 }
 
 static void
@@ -712,17 +633,13 @@ header(char *buf, int buflen, const char *hname)
     for (i = 0; i < buflen - slen - 2; ++i) {
         DUMPf("[%.*s] [%s]", slen, buf + i, hname);
         if (!strncasecmp(buf + i, hname, slen)) {
-            DUMP();
             if (i && (buf[i - 1] && buf[i - 1] != '\n'))
                 continue;
-            DUMP();
             if (buf[i + slen] != ':' || buf[i + slen + 1] != ' ')
                 continue;
-            DUMP();
             c = buf + i + slen + 2;
             i += slen + 2;
             for (; i < buflen; ++i) {
-                DUMP_c(buf[i]);
                 if (buf[i] == 0 || buf[i] == '\n' || buf[i] == '\r') {
                     buf[i] = 0;
                     break;
@@ -1371,14 +1288,19 @@ get_ucspi_env(void)
 {
     char           *ucspi = getenv("PROTO");
     if (ucspi) {
-        char           *buf = alloca(strlen(ucspi) + 20);
-        unsigned int    tmp = str_copy(buf, ucspi);
-        buf[tmp + str_copy(buf + tmp, "REMOTEIP")] = 0;
+        int protolen = strlen(ucspi);
+        char *buf = alloca(protolen + 20);
+
+        strcpy(buf, ucspi);
+        
+        strcpy(buf + protolen, "REMOTEIP");
         remote_ip = getenv(buf);
+
 #ifdef CGI
-        buf[tmp + str_copy(buf + tmp, "REMOTEPORT")] = 0;
+        strcpy(buf + protolen, "REMOTEPORT");
         remote_port = getenv(buf);
-        buf[tmp + str_copy(buf + tmp, "REMOTEINFO")] = 0;
+
+        strcpy(buf + protolen, "REMOTEINFO");
         remote_ident = getenv(buf);
 #endif
     }
@@ -1430,6 +1352,7 @@ serve_read_write(int fd)
         }
         todo -= olen;
     }
+    return 0;
 }
 
 static int
@@ -1803,17 +1726,13 @@ main(int argc, char *argv[], const char *const *envp)
                 ip = "127.0.0.1";
             if (strlen(ip) + strlen(port) > 90)
                 exit(101);
+            sprintf(Buf, "%s:%s", ip, port);
             host = Buf;
-            i = str_copy(Buf, ip);
-            i += str_copy(Buf + i, ":");
-            i += str_copy(Buf + i, port);
 #ifdef NORMALIZE_HOST
         } else {
             char           *colon = strchr(host, ':');
             if (*colon == 0) {
-                i = str_copy(Buf, host);
-                i += str_copy(Buf + i, ":");
-                i += str_copy(Buf + i, port);
+                sprintf(Buf, "%s:%s", host, port);
                 host = Buf;
             }
 #endif
@@ -1914,9 +1833,7 @@ main(int argc, char *argv[], const char *const *envp)
     if (*nurl == '/') {
         int             i;
         nurl = alloca(strlen(url) + 12);
-        i = str_copy(nurl, url);
-        i += str_copy(nurl + i, "index.html");
-        nurl[i] = 0;
+        i = sprintf(nurl, "%sindex.html", url);
         url = nurl;
         nurl = url + i;
     }
@@ -1973,18 +1890,19 @@ main(int argc, char *argv[], const char *const *envp)
             /*
              * look if file.gz is also there and acceptable 
              */
-            char           *fnord = alloca(strlen(url) + 4);
-            int             i,
-                            fd2,
+            int             ul = strlen(url);
+            char           *fnord = alloca(ul + 4);
+            int             fd2,
                             trypng = 0;
             char           *oldencoding = encoding;
             char           *oldmimetype = mimetype;
-            i = str_copy(fnord, url);
-            if (i > 4 && !strcmp(fnord + i - 4, ".gif")) {
+
+            strcpy(fnord, url);
+            if (ul > 4 && !strcmp(fnord + ul - 4, ".gif")) {
                 trypng = 1;
-                str_copy(fnord + i - 3, "png");
+                strcpy(fnord + ul - 3, "png");
             } else
-                str_copy(fnord + i, ".gz");
+                strcpy(fnord + ul, ".gz");
             fd2 = doit(buf, len, fnord, 0);
             if (fd2 >= 0) {     /* yeah! */
                 url = fnord;
@@ -2015,9 +1933,9 @@ main(int argc, char *argv[], const char *const *envp)
             }
 #endif
             if (encoding) {
-                printf("Content-Encoding: %s\r\n");
+                printf("Content-Encoding: %s\r\n", encoding);
             }
-            printf("Content-Length: %lu\r\n", rangeend - rangestart);
+            printf("Content-Length: %llu\r\n", (unsigned long long)(rangeend - rangestart));
             printf("Last-Modified: ");
             {
                 struct tm      *x = gmtime(&st.st_mtime);
@@ -2033,8 +1951,10 @@ main(int argc, char *argv[], const char *const *envp)
             }
             if (rangestart || rangeend != st.st_size) {
                 printf
-                    ("Accept-Ranges: bytes\r\nContent-Range: bytes %lu-%lu/%lu\r\n",
-                     rangestart, rangeend - 1, st.st_size);
+                    ("Accept-Ranges: bytes\r\nContent-Range: bytes %llu-%llu/%llu\r\n",
+                     (unsigned long long)rangestart,
+                     (unsigned long long)rangeend - 1,
+                     (unsigned long long)st.st_size);
             }
             fputs("\r\n", stdout);
             if (method == GET || method == POST) {
@@ -2068,14 +1988,12 @@ main(int argc, char *argv[], const char *const *envp)
                 fflush(stdout);
         }
     }
-#ifdef CHROOT
-  tuttikaputti:
-#endif
     switch (retcode) {
     case 404:
         {
-            char           *space = alloca(strlen(url) + 2);
 #ifdef INDEX_CGI
+            char           *space = alloca(strlen(url) + 2);
+
             if (handleindexcgi(url, origurl, space))
                 goto indexcgi;
 #endif
