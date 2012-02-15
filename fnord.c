@@ -1072,15 +1072,16 @@ static void
 handledirlist(const char *origurl)
 {
     DIR            *dir;
-    unsigned int    nl = strlen(origurl);
+    unsigned int    nl;
     const char     *nurl = origurl;
+
     url = (char *) origurl;
     while (nurl[0] == '/')
         ++nurl;
     if (nurl <= origurl)
         return;
     nl = strlen(nurl);
-    if (nurl[nl - 1] != '/')
+    if (nl && (nurl[nl - 1] != '/'))
         return;
     if (!stat(nl ? nurl : ".", &st) && (S_ISDIR(st.st_mode))
         && ((st.st_mode & S_IRWXO) == 5)) {
