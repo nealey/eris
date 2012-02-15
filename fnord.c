@@ -125,6 +125,9 @@ char           *remote_ip;
 char           *remote_port;
 char           *remote_ident;
 
+#define BUFFER_OUTSIZE 8192
+char stdout_buf[BUFFER_OUTSIZE];
+
 static void
 sanitize(char *ua)
 {                               /* replace strings with underscores for *
@@ -1426,6 +1429,8 @@ main(int argc, char *argv[], const char *const *envp)
             }
         }
     }
+
+    setbuffer(stdout, stdout_buf, sizeof stdout_buf);
 
     signal(SIGPIPE, SIG_IGN);
     get_ucspi_env();
