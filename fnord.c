@@ -1762,17 +1762,11 @@ main(int argc, char *argv[], const char *const *envp)
              */
             int             ul = strlen(url);
             char           *fnord = alloca(ul + 4);
-            int             fd2,
-                            trypng = 0;
+            int             fd2;
             char           *oldencoding = encoding;
-            char           *oldmimetype = mimetype;
 
             strcpy(fnord, url);
-            if (ul > 4 && !strcmp(fnord + ul - 4, ".gif")) {
-                trypng = 1;
-                strcpy(fnord + ul - 3, "png");
-            } else
-                strcpy(fnord + ul, ".gz");
+            strcpy(fnord + ul, ".gz");
             fd2 = doit(buf, len, fnord, 0);
             if (fd2 >= 0) {     /* yeah! */
                 url = fnord;
@@ -1780,8 +1774,6 @@ main(int argc, char *argv[], const char *const *envp)
                 fd = fd2;
             } else {
                 encoding = oldencoding;
-                if (trypng)
-                    mimetype = oldmimetype;
             }
             retcode = 200;
             dolog(st.st_size);
