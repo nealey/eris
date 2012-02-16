@@ -76,17 +76,17 @@ class CGITests(BasicTests):
 
     def testSet(self):
         so, se = self.get('/cgi/set.cgi', 'default')
-        self.assertEqual(so, b'HTTP/1.0 200 OK\r\nServer: fnord/2.0\r\nPragma: no-cache\r\nConnection: close\r\nContent-Type: text/plain\r\n\nGATEWAY_INTERFACE=CGI/1.1\nREMOTE_ADDR=10.1.2.3\nREMOTE_PORT=5858\nREQUEST_METHOD=GET\nREQUEST_URI=/cgi/set.cgi\nSCRIPT_NAME=/cgi/set.cgi\nSERVER_NAME=default:80\nSERVER_PORT=80\nSERVER_PROTOCOL=HTTP/1.0\nSERVER_SOFTWARE=fnord/2.0\n')
+        self.assertEqual(so, b'HTTP/1.0 200 OK\r\nServer: fnord/2.0\r\nPragma: no-cache\r\nConnection: close\r\nContent-Type: text/plain\r\n\nGATEWAY_INTERFACE:CGI/1.1\nSERVER_PROTOCOL:HTTP/1.0\nSERVER_SOFTWARE:fnord/2.0\nSERVER_NAME:default:80\nSERVER_PORT:80\nREQUEST_METHOD:GET\nREQUEST_URI:/cgi/set.cgi\nSCRIPT_NAME:/cgi/set.cgi\nREMOTE_ADDR:10.1.2.3\nREMOTE_PORT:5858\n')
         self.assertEqual(se, b'10.1.2.3 200 248 default:80 (null) (null) /cgi/set.cgi\n')
 
     def testSetArgs(self):
         so, se = self.get('/cgi/set.cgi?a=1&b=2&c=3', 'default')
-        self.assertEqual(so, b"HTTP/1.0 200 OK\r\nServer: fnord/2.0\r\nPragma: no-cache\r\nConnection: close\r\nContent-Type: text/plain\r\n\nGATEWAY_INTERFACE=CGI/1.1\nQUERY_STRING='a=1&b=2&c=3'\nREMOTE_ADDR=10.1.2.3\nREMOTE_PORT=5858\nREQUEST_METHOD=GET\nREQUEST_URI=/cgi/set.cgi\nSCRIPT_NAME=/cgi/set.cgi\nSERVER_NAME=default:80\nSERVER_PORT=80\nSERVER_PROTOCOL=HTTP/1.0\nSERVER_SOFTWARE=fnord/2.0\n")
-        self.assertEqual(se, b'10.1.2.3 200 275 default:80 (null) (null) /cgi/set.cgi\n')
+        self.assertEqual(so, b'HTTP/1.0 200 OK\r\nServer: fnord/2.0\r\nPragma: no-cache\r\nConnection: close\r\nContent-Type: text/plain\r\n\nGATEWAY_INTERFACE:CGI/1.1\nSERVER_PROTOCOL:HTTP/1.0\nSERVER_SOFTWARE:fnord/2.0\nSERVER_NAME:default:80\nSERVER_PORT:80\nREQUEST_METHOD:GET\nREQUEST_URI:/cgi/set.cgi\nSCRIPT_NAME:/cgi/set.cgi\nREMOTE_ADDR:10.1.2.3\nREMOTE_PORT:5858\nQUERY_STRING:a=1&b=2&c=3\n')
+        self.assertEqual(se, b'10.1.2.3 200 273 default:80 (null) (null) /cgi/set.cgi\n')
 
     def testPost(self):
         so, se = self.post('/cgi/set.cgi', 'default', 'a=1&b=2&c=3')
-        self.assertEqual(so, b'HTTP/1.0 200 OK\r\nServer: fnord/2.0\r\nPragma: no-cache\r\nConnection: close\r\nContent-Type: text/plain\r\n\nCONTENT_LENGTH=11\nCONTENT_TYPE=application/x-www-form-urlencoded\nGATEWAY_INTERFACE=CGI/1.1\nREMOTE_ADDR=10.1.2.3\nREMOTE_PORT=5858\nREQUEST_METHOD=POST\nREQUEST_URI=/cgi/set.cgi\nSCRIPT_NAME=/cgi/set.cgi\nSERVER_NAME=default:80\nSERVER_PORT=80\nSERVER_PROTOCOL=HTTP/1.0\nSERVER_SOFTWARE=fnord/2.0\nForm data: a=1&b=2&c=3')
+        self.assertEqual(so, b'HTTP/1.0 200 OK\r\nServer: fnord/2.0\r\nPragma: no-cache\r\nConnection: close\r\nContent-Type: text/plain\r\n\nGATEWAY_INTERFACE:CGI/1.1\nSERVER_PROTOCOL:HTTP/1.0\nSERVER_SOFTWARE:fnord/2.0\nSERVER_NAME:default:80\nSERVER_PORT:80\nREQUEST_METHOD:POST\nREQUEST_URI:/cgi/set.cgi\nSCRIPT_NAME:/cgi/set.cgi\nREMOTE_ADDR:10.1.2.3\nREMOTE_PORT:5858\nCONTENT_TYPE:application/x-www-form-urlencoded\nCONTENT_LENGTH:11\nForm data: a=1&b=2&c=3')
 
 unittest.main()
 
