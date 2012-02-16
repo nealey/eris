@@ -1807,6 +1807,7 @@ main(int argc, char *argv[], const char *const *envp)
                    (unsigned long long) (rangeend - rangestart));
             printf("Last-Modified: ");
             {
+                /* XXX: This parses tzinfo.  It shouldn't have to. */
                 struct tm      *x = gmtime(&st.st_mtime);
                 /*
                  * "Sun, 06 Nov 1994 08:49:37 GMT" 
