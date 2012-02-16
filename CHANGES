@@ -1,3 +1,11 @@
+2.0:
+  Major modifications
+  Replace libowfat with libc
+  Replace buffer_1 and buffer_2 with stdio
+  Fix directory listing of / SEGV
+  Replace compile-time options with command-line ones
+  Add regression test suite
+
 1.11:
   Fix if-modified-since date parsing
   Make text content-types use charset=UTF-8

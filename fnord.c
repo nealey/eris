@@ -1093,7 +1093,7 @@ handledirlist(const char *origurl)
                             size = 32 + nl;
             fputs("HTTP/1.0 200 OK\r\nServer: " FNORD
                   "\r\nConnection: close\r\n", stdout);
-            fputs("Content-Type: text/html\r\n", stdout);
+            fputs("Content-Type: text/html; charset=utf-8\r\n", stdout);
             fputs("\r\n<h3>Directory Listing: /", stdout);
             hdl_encode_html(nurl, nl);
             fputs("</h3>\n<pre>\n", stdout);
@@ -1425,7 +1425,7 @@ main(int argc, char *argv[], const char *const *envp)
                 redirect = 1;
                 break;
             default:
-                fprintf(stderr, "%d Usage: %s [-d] [-r]\n", opt, argv[0]);
+                fprintf(stderr, "Usage: %s [-c] [-d] [-r]\n", argv[0]);
                 return 69;
             }
         }
