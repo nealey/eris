@@ -67,8 +67,8 @@ class DirTests(BasicTests):
     def testFiles(self):
         so, se = self.get('/files/', 'default')
 
-        self.assertEqual(so, b'HTTP/1.0 200 OK\r\nServer: fnord/2.0\r\nConnection: close\r\nContent-Type: text/html; charset=utf-8\r\n\r\n<h3>Directory Listing: /files/</h3>\n<pre>\n<a href="/">Parent directory</a>\n</pre>\n')
-        self.assertEqual(se, b'10.1.2.3 200 78 default:80 (null) (null) /files/\n')
+        self.assertEqual(so, b'HTTP/1.0 200 OK\r\nServer: fnord/2.0\r\nConnection: close\r\nContent-Type: text/html; charset=utf-8\r\n\r\n<h3>Directory Listing: /files/</h3>\n<pre>\n<a href="/">Parent directory</a>\n[TXT] <a href="2.txt">2.txt</a>\n[TXT] <a href="1.txt">1.txt</a>\n</pre>\n')
+        self.assertEqual(se, b'10.1.2.3 200 142 default:80 (null) (null) /files/\n')
 
 
 class CGITests(BasicTests):
