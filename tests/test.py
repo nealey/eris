@@ -15,7 +15,7 @@ class ArgTests(unittest.TestCase):
     def check_index(self, *args):
         p = eris(*args)
         so, se = p.communicate(b'GET / HTTP/1.0\r\n\r\n')
-        self.assertRegex(so, b'HTTP/1.0 200 OK\r\nServer: eris/2\r\nContent-Type: text/html; charset=UTF-8\r\nContent-Length: 6\r\nLast-Modified: (Mon|Tue|Wed|Thu|Fri|Sat|Sun), .. (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) 2... ..:..:.. GMT\r\n\r\njames\n')
+        self.assertRegexpMatches(so, b'HTTP/1.0 200 OK\r\nServer: eris/2\r\nContent-Type: text/html; charset=UTF-8\r\nContent-Length: 6\r\nLast-Modified: (Mon|Tue|Wed|Thu|Fri|Sat|Sun), .. (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) 2... ..:..:.. GMT\r\n\r\njames\n')
         self.assertEqual(se, b'10.1.2.3 200 6 127.0.0.1:80 (null) (null) /index.html\n')
 
     def testArgs(self):
