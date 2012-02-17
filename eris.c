@@ -44,7 +44,7 @@
  * the following is the time in seconds that fnord should wait for a valid 
  * HTTP request 
  */
-#define READTIMEOUT 20
+#define READTIMEOUT 2
 
 /*
  * the following is the time in seconds that fnord should wait before
@@ -217,7 +217,7 @@ elen(register const char *const *e)
 }
 
 static ssize_t
-read_header(int fd, char *buf, size_t buflen)
+read_header(int fd, char *buf, size_t buflen, size_t *headerlen)
 {
     size_t len = 0;
     int found = 0;
@@ -235,13 +235,22 @@ read_header(int fd, char *buf, size_t buflen)
         }
         len += tmp;
 
-        for (; p < len; p += 1) {
-            if (buf[p] == '\n') {
-                if (++found == 2) {
+        for (; (found < 2) && (p < len); p += 1) {
+            switch (buf[p]) {
+                case '\n':
+                    found += 1;
                     break;
-                }
+                case '\r':
+                    break;
+                default:
+                    found = 0;
+                    break;
             }
         }
+    }
+
+    if (headerlen) {
+        *headerlen = p;
     }
 
     return len;
@@ -481,10 +490,11 @@ start_cgi(int nph, const char *pathinfo, const char *const *envp)
 
                     if (startup) {
                         /* XXX: could block :< */
-                        len = read_header(fd[0], ibuf, sizeof ibuf);
+                        len = read_header(fd[0], ibuf, sizeof ibuf, NULL);
                     } else {
                         len = read(fd[0], ibuf, sizeof ibuf);
                     }
+                    DUMP_d(len);
                     
                     if (0 == len) {
                         break;
@@ -1457,8 +1467,8 @@ main(int argc, char *argv[], const char *const *envp)
     int             dirlist = 0;
     int             redirect = 0;
     int             portappend = 0;
-    int             len;
-    int             in;
+    size_t          len;
+    ssize_t         in;
 
     {
         int             opt;
@@ -1491,48 +1501,9 @@ main(int argc, char *argv[], const char *const *envp)
 
   handlenext:
     encoding = 0;
-    // alarm(20);
+    alarm(READTIMEOUT);
 
-    {
-        int             found = 0;
-        time_t          fini,
-                        now;
-        struct pollfd   duh;
-
-        fini = time(&now) + READTIMEOUT;
-        duh.fd = 0;
-        duh.events = POLLIN;
-        for (in = len = 0; found < 2;) {
-            int             tmp;
-            switch (poll(&duh, 1, READTIMEOUT * 1000)) {
-            case 0:
-                if (time(&now) < fini)
-                    continue;   /* fall through */
-            case -1:           /* timeout or error */
-                // badrequest(408,"Request Time-out","No request
-                // appeared
-                // within a reasonable time period.");
-                return 1;
-            }
-            tmp = read(0, buf + len, MAXHEADERLEN - len - 5);
-            if (tmp < 0)
-                return 1;
-            if (tmp == 0)
-                return 1;
-            in += tmp;
-            now = time(0);
-            for (; (found < 2) && (len < in); ++len) {
-                if (buf[len] == '\r')
-                    continue;
-                if (buf[len] == '\n')
-                    ++found;
-                else
-                    found = 0;
-                if (found > 1)
-                    break;
-            }
-        }
-    }
+    in = read_header(0, buf, sizeof buf, &len);
     if (len < 10)
         badrequest(400, "Bad Request",
                    "<title>Bad Request</title>That does not look like HTTP to me...");
@@ -1678,7 +1649,6 @@ main(int argc, char *argv[], const char *const *envp)
                            "<title>Bad Request</title>Bullshit Host header");
         if (host[0] == '.')
             goto hostb0rken;
-        // fprintf(stderr,"host %s\n",host);
         if (keepalive > 0) {
             if ((rootdir = open(".", O_RDONLY)) < 0)
                 keepalive = -1;
