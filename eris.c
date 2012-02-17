@@ -1456,13 +1456,14 @@ main(int argc, char *argv[], const char *const *envp)
     int             docgi = 0;
     int             dirlist = 0;
     int             redirect = 0;
+    int             portappend = 0;
     int             len;
     int             in;
 
     {
         int             opt;
 
-        while (-1 != (opt = getopt(argc, argv, "cdr"))) {
+        while (-1 != (opt = getopt(argc, argv, "cdrp"))) {
             switch (opt) {
             case 'c':
                 docgi = 1;
@@ -1473,8 +1474,11 @@ main(int argc, char *argv[], const char *const *envp)
             case 'r':
                 redirect = 1;
                 break;
+            case 'p':
+                portappend = 1;
+                break;
             default:
-                fprintf(stderr, "Usage: %s [-c] [-d] [-r]\n", argv[0]);
+                fprintf(stderr, "Usage: %s [-c] [-d] [-r] [-p]\n", argv[0]);
                 return 69;
             }
         }
@@ -1651,13 +1655,20 @@ main(int argc, char *argv[], const char *const *envp)
                 ip = "127.0.0.1";
             if (strlen(ip) + strlen(port) > 90)
                 exit(101);
-            sprintf(Buf, "%s:%s", ip, port);
+            if (portappend) {
+                sprintf(Buf, "%s:%s", ip, port);
+            } else {
+                strcpy(Buf, ip);
+            }
             host = Buf;
         } else {
             char           *colon = strchr(host, ':');
-            if (!colon) {
+
+            if (portappend && !colon) {
                 sprintf(Buf, "%s:%s", host, port);
                 host = Buf;
+            } else if (!portappend && colon) {
+                *colon = '\0';
             }
         }
         for (i = strlen(host); i >= 0; --i)
