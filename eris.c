@@ -38,6 +38,7 @@
 #define DUMP_s(v) DUMPf("%s = %s", #v, v)
 #define DUMP_c(v) DUMPf("%s = %c", #v, v)
 #define DUMP_p(v) DUMPf("%s = %p", #v, v)
+#define DUMP_buf(v, l) DUMPf("%s = %.*s", #v, l, v)
 
 /*
  * the following is the time in seconds that fnord should wait for a valid 
@@ -68,10 +69,6 @@
 
 #ifdef USE_SENDFILE
 #include <sys/sendfile.h>
-#endif
-
-#ifndef O_NDELAY
-#define O_NDELAY O_NONBLOCK
 #endif
 
 #define USE_MMAP
@@ -219,7 +216,38 @@ elen(register const char *const *e)
     return i;
 }
 
-char           *
+static ssize_t
+read_header(int fd, char *buf, size_t buflen)
+{
+    size_t len = 0;
+    int found = 0;
+    size_t p = 0;
+
+    while (found < 2) {
+        int             tmp;
+
+        tmp = read(fd, buf + len, buflen - len);
+        if (tmp < 0) {
+            return -1;
+        }
+        if (tmp == 0) {
+            break;
+        }
+        len += tmp;
+
+        for (; p < len; p += 1) {
+            if (buf[p] == '\n') {
+                if (++found == 2) {
+                    break;
+                }
+            }
+        }
+    }
+
+    return len;
+}
+
+char *
 env_append(const char *key, const char *val)
 {
     static char     buf[MAXHEADERLEN * 2 + PATH_MAX + 200];
@@ -370,30 +398,37 @@ cgi_child(int sig)
     signal(SIGCHLD, cgi_child);
 }
 
-static void
+/* Convert bare \n to \r\n in header.  Return 0 if
+ * header is over. */
+static int
 cgi_send_correct_http(const char *s, unsigned int sl)
 {
     unsigned int    i;
-    char            ch = 0;
-    for (i = 0; i < sl; ++i) {
-        if ((s[i] == '\r') && (s[i + 1] == '\n')) {
-            ++i;
-            goto out_nl;
-        } else {
-            if (s[i] != '\n') {
-                putchar(s[i]);
-            } else {
-              out_nl:
-                printf("\r\n");
-                if (ch == '\n') {
-                    ++i;
+    int newline = 0;
+
+    for (i = 0; i < sl; i += 1) {
+        switch (s[i]) {
+            case '\r':
+                if (s[i + 1] == '\n') {
+                    i += 1;
+            case '\n': 
+                    printf("\r\n");
+                    if (newline) {
+                        fwrite(s + i + 1, sl - i - 1, 1, stdout);
+                        return 0;
+                    } else {
+                        newline = 1;
+                    }
                     break;
+                } else {
+            default:
+                    newline = 0;
+                    putchar(s[i]);
                 }
-            }
+                break;
         }
-        ch = s[i];
     }
-    printf("%.*s", sl - i, s + i);
+    return 1;
 }
 
 static void
@@ -442,17 +477,29 @@ start_cgi(int nph, const char *pathinfo, const char *const *envp)
                  * read from cgi 
                  */
                 if (pfd[0].revents & POLLIN) {
-                    if (!(n = read(fd[0], ibuf, sizeof(ibuf))))
+                    size_t len;
+
+                    if (startup) {
+                        /* XXX: could block :< */
+                        len = read_header(fd[0], ibuf, sizeof ibuf);
+                    } else {
+                        len = read(fd[0], ibuf, sizeof ibuf);
+                    }
+                    
+                    if (0 == len) {
                         break;
-                    if (n < 0)
+                    }
+                    if (len == -1) {
                         goto cgi_500;
+                    }
+
                     /*
                      * startup 
                      */
                     if (startup) {
-                        startup = 0;
                         if (nph) {      /* NPH-CGI */
-                            printf("%.*s", n, ibuf);
+                            startup = 0;
+                            printf("%.*s", len, ibuf);
                             /*
                              * skip HTTP/x.x 
                              */
@@ -473,7 +520,8 @@ start_cgi(int nph, const char *pathinfo, const char *const *envp)
                                        FNORD
                                        "\r\nPragma: no-cache\r\nConnection: close\r\n");
                                 signal(SIGCHLD, SIG_IGN);
-                                cgi_send_correct_http(ibuf, n);
+                                cgi_send_correct_http(ibuf, len);
+                                startup = 0;
                             }
                         }
                     }
@@ -481,9 +529,9 @@ start_cgi(int nph, const char *pathinfo, const char *const *envp)
                      * non startup 
                      */
                     else {
-                        printf("%.*s", n, ibuf);
+                        fwrite(ibuf, len, 1, stdout);
                     }
-                    size += n;
+                    size += len;
                     if (pfd[0].revents & POLLHUP)
                         break;
                 }
@@ -1398,6 +1446,7 @@ serve_static_data(int fd)
 #endif
 }
 
+
 int
 main(int argc, char *argv[], const char *const *envp)
 {
@@ -1797,14 +1846,17 @@ main(int argc, char *argv[], const char *const *envp)
             }
             printf("Content-Length: %llu\r\n",
                    (unsigned long long) (rangeend - rangestart));
-            printf("Last-Modified: ");
             {
-                /* XXX: This parses tzinfo.  It shouldn't have to. */
+                /*
+                 * glibc's gmtime parses tzinfo, resulting in 9
+                 * additional syscalls.  uclibc doesn't do this.
+                 * I presume dietlibc doesn't either.
+                 */
                 struct tm      *x = gmtime(&st.st_mtime);
                 /*
                  * "Sun, 06 Nov 1994 08:49:37 GMT" 
                  */
-                printf("%.3s, %02d %.3s %d %02d:%02d:%02d GMT\r\n",
+                printf("Last-Modified: %.3s, %02d %.3s %d %02d:%02d:%02d GMT\r\n",
                        days + (3 * x->tm_wday),
                        x->tm_mday,
                        months + (3 * x->tm_mon),

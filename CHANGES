@@ -1,17 +1,17 @@
-2.0:
-  Major modifications
-  Replace libowfat with libc
-  Replace buffer_1 and buffer_2 with stdio
-  Fix directory listing of / SEGV
-  Replace compile-time options with command-line ones
+2:
+  Rename to "eris httpd" to acknowledge fork
   Add regression test suite
-
-1.11:
+  Replace compile-time options with command-line ones
+  Fix segfault with directory listing of /
+  Replace buffer_1 and buffer_2 with stdio
+  Replace libowfat with libc
+  Add all patches from (defunct) Debian package
   Fix if-modified-since date parsing
   Make text content-types use charset=UTF-8
   Change default content-type to application/octet-stream
   Makefile no longer overrides CC and CPP from parent makes
   Don't send Content-type if there's no content
+  New maintainer: Neale Pickett <neale@woozle.org>
 
 1.10:
   have fallback in case sendfile fails

@@ -4,8 +4,8 @@ import unittest
 from subprocess import *
 import os
 
-def fnord(*args):
-    return Popen(('../fnord',) + args, 
+def eris(*args):
+    return Popen(('../eris',) + args, 
                  stdin=PIPE, stdout=PIPE, stderr=PIPE,
                  env={'PROTO': 'TCP',
                       'TCPREMOTEPORT': '5858',
@@ -13,9 +13,9 @@ def fnord(*args):
 
 class ArgTests(unittest.TestCase):
     def check_index(self, *args):
-        p = fnord(*args)
+        p = eris(*args)
         so, se = p.communicate(b'GET / HTTP/1.0\r\n\r\n')
-        self.assertRegex(so, b'HTTP/1.0 200 OK\r\nServer: fnord/2.0\r\nContent-Type: text/html; charset=UTF-8\r\nContent-Length: 6\r\nLast-Modified: (Mon|Tue|Wed|Thu|Fri|Sat|Sun), .. (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) 2... ..:..:.. GMT\r\n\r\njames\n')
+        self.assertRegex(so, b'HTTP/1.0 200 OK\r\nServer: eris/2\r\nContent-Type: text/html; charset=UTF-8\r\nContent-Length: 6\r\nLast-Modified: (Mon|Tue|Wed|Thu|Fri|Sat|Sun), .. (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) 2... ..:..:.. GMT\r\n\r\njames\n')
         self.assertEqual(se, b'10.1.2.3 200 6 127.0.0.1:80 (null) (null) /index.html\n')
 
     def testArgs(self):
@@ -36,7 +36,7 @@ class BasicTests(unittest.TestCase):
     args = []
 
     def setUp(self):
-        self.p = fnord(*self.args)
+        self.p = eris(*self.args)
         
     def tearDown(self):
         del self.p
@@ -56,7 +56,7 @@ class DirTests(BasicTests):
 
     def testRootDir(self):
         so, se = self.get('/', 'empty')
-        self.assertEqual(so, b'HTTP/1.0 200 OK\r\nServer: fnord/2.0\r\nConnection: close\r\nContent-Type: text/html; charset=utf-8\r\n\r\n<h3>Directory Listing: /</h3>\n<pre>\n</pre>\n')
+        self.assertEqual(so, b'HTTP/1.0 200 OK\r\nServer: eris/2\r\nConnection: close\r\nContent-Type: text/html; charset=utf-8\r\n\r\n<h3>Directory Listing: /</h3>\n<pre>\n</pre>\n')
         self.assertEqual(se, b'10.1.2.3 200 32 empty:80 (null) (null) /\n')
 
     def testNoTrailingSlash(self):
@@ -67,7 +67,7 @@ class DirTests(BasicTests):
     def testFiles(self):
         so, se = self.get('/files/', 'default')
 
-        self.assertEqual(so, b'HTTP/1.0 200 OK\r\nServer: fnord/2.0\r\nConnection: close\r\nContent-Type: text/html; charset=utf-8\r\n\r\n<h3>Directory Listing: /files/</h3>\n<pre>\n<a href="/">Parent directory</a>\n[TXT] <a href="1.txt">1.txt</a>\n</pre>\n')
+        self.assertEqual(so, b'HTTP/1.0 200 OK\r\nServer: eris/2\r\nConnection: close\r\nContent-Type: text/html; charset=utf-8\r\n\r\n<h3>Directory Listing: /files/</h3>\n<pre>\n<a href="/">Parent directory</a>\n[TXT] <a href="1.txt">1.txt</a>\n</pre>\n')
         self.assertEqual(se, b'10.1.2.3 200 110 default:80 (null) (null) /files/\n')
 
 
@@ -76,17 +76,18 @@ class CGITests(BasicTests):
 
     def testSet(self):
         so, se = self.get('/cgi/set.cgi', 'default')
-        self.assertEqual(so, b'HTTP/1.0 200 OK\r\nServer: fnord/2.0\r\nPragma: no-cache\r\nConnection: close\r\nContent-Type: text/plain\r\n\nGATEWAY_INTERFACE:CGI/1.1\nSERVER_PROTOCOL:HTTP/1.0\nSERVER_SOFTWARE:fnord/2.0\nSERVER_NAME:default:80\nSERVER_PORT:80\nREQUEST_METHOD:GET\nREQUEST_URI:/cgi/set.cgi\nSCRIPT_NAME:/cgi/set.cgi\nREMOTE_ADDR:10.1.2.3\nREMOTE_PORT:5858\n')
-        self.assertEqual(se, b'10.1.2.3 200 248 default:80 (null) (null) /cgi/set.cgi\n')
+        self.assertEqual(so, b'HTTP/1.0 200 OK\r\nServer: eris/2\r\nPragma: no-cache\r\nConnection: close\r\nContent-Type: text/plain\r\n\r\nGATEWAY_INTERFACE:CGI/1.1\nSERVER_PROTOCOL:HTTP/1.0\nSERVER_SOFTWARE:eris/2\nSERVER_NAME:default:80\nSERVER_PORT:80\nREQUEST_METHOD:GET\nREQUEST_URI:/cgi/set.cgi\nSCRIPT_NAME:/cgi/set.cgi\nREMOTE_ADDR:10.1.2.3\nREMOTE_PORT:5858\n')
+        self.assertEqual(se, b'10.1.2.3 200 245 default:80 (null) (null) /cgi/set.cgi\n')
 
     def testSetArgs(self):
         so, se = self.get('/cgi/set.cgi?a=1&b=2&c=3', 'default')
-        self.assertEqual(so, b'HTTP/1.0 200 OK\r\nServer: fnord/2.0\r\nPragma: no-cache\r\nConnection: close\r\nContent-Type: text/plain\r\n\nGATEWAY_INTERFACE:CGI/1.1\nSERVER_PROTOCOL:HTTP/1.0\nSERVER_SOFTWARE:fnord/2.0\nSERVER_NAME:default:80\nSERVER_PORT:80\nREQUEST_METHOD:GET\nREQUEST_URI:/cgi/set.cgi\nSCRIPT_NAME:/cgi/set.cgi\nREMOTE_ADDR:10.1.2.3\nREMOTE_PORT:5858\nQUERY_STRING:a=1&b=2&c=3\n')
-        self.assertEqual(se, b'10.1.2.3 200 273 default:80 (null) (null) /cgi/set.cgi\n')
+        self.assertEqual(so, b'HTTP/1.0 200 OK\r\nServer: eris/2\r\nPragma: no-cache\r\nConnection: close\r\nContent-Type: text/plain\r\n\r\nGATEWAY_INTERFACE:CGI/1.1\nSERVER_PROTOCOL:HTTP/1.0\nSERVER_SOFTWARE:eris/2\nSERVER_NAME:default:80\nSERVER_PORT:80\nREQUEST_METHOD:GET\nREQUEST_URI:/cgi/set.cgi\nSCRIPT_NAME:/cgi/set.cgi\nREMOTE_ADDR:10.1.2.3\nREMOTE_PORT:5858\nQUERY_STRING:a=1&b=2&c=3\n')
+        self.assertEqual(se, b'10.1.2.3 200 270 default:80 (null) (null) /cgi/set.cgi\n')
 
     def testPost(self):
         so, se = self.post('/cgi/set.cgi', 'default', 'a=1&b=2&c=3')
-        self.assertEqual(so, b'HTTP/1.0 200 OK\r\nServer: fnord/2.0\r\nPragma: no-cache\r\nConnection: close\r\nContent-Type: text/plain\r\n\nGATEWAY_INTERFACE:CGI/1.1\nSERVER_PROTOCOL:HTTP/1.0\nSERVER_SOFTWARE:fnord/2.0\nSERVER_NAME:default:80\nSERVER_PORT:80\nREQUEST_METHOD:POST\nREQUEST_URI:/cgi/set.cgi\nSCRIPT_NAME:/cgi/set.cgi\nREMOTE_ADDR:10.1.2.3\nREMOTE_PORT:5858\nCONTENT_TYPE:application/x-www-form-urlencoded\nCONTENT_LENGTH:11\nForm data: a=1&b=2&c=3')
+        self.assertEqual(so, b'HTTP/1.0 200 OK\r\nServer: eris/2\r\nPragma: no-cache\r\nConnection: close\r\nContent-Type: text/plain\r\n\r\nGATEWAY_INTERFACE:CGI/1.1\nSERVER_PROTOCOL:HTTP/1.0\nSERVER_SOFTWARE:eris/2\nSERVER_NAME:default:80\nSERVER_PORT:80\nREQUEST_METHOD:POST\nREQUEST_URI:/cgi/set.cgi\nSCRIPT_NAME:/cgi/set.cgi\nREMOTE_ADDR:10.1.2.3\nREMOTE_PORT:5858\nCONTENT_TYPE:application/x-www-form-urlencoded\nCONTENT_LENGTH:11\nForm data: a=1&b=2&c=3')
+        self.assertEqual(se, b'10.1.2.3 200 333 default:80 (null) (null) /cgi/set.cgi\n')
 
 unittest.main()
 
