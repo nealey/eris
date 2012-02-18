@@ -15,6 +15,15 @@ class LinesTests(unittest.TestCase):
     def assertLinesEqual(self, a, b):
         self.assertSequenceEqual(a.split(b'\n'), b.split(b'\n'))
 
+class NewlineTests(LinesTests):
+    def testBareNL(self):
+
+        p = eris()
+        so, se = p.communicate(b'GET / HTTP/1.0\n\n')
+        self.assertRegexpMatches(so, b'HTTP/1.0 200 OK\r\nServer: eris/2\r\nContent-Type: text/html; charset=UTF-8\r\nContent-Length: 6\r\nLast-Modified: (Mon|Tue|Wed|Thu|Fri|Sat|Sun), .. (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) 2... ..:..:.. GMT\r\n\r\njames\n')
+        self.assertLinesEqual(se, b'10.1.2.3 200 6 127.0.0.1 (null) (null) /index.html\n')
+
+
 class ArgTests(LinesTests):
     def check_index(self, *args):
         p = eris(*args)

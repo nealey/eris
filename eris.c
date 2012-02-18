@@ -34,11 +34,12 @@
 #endif
 #define DUMP() DUMPf("")
 #define DUMP_d(v) DUMPf("%s = %d", #v, v)
+#define DUMP_u(v) DUMPf("%s = %u", #v, v)
 #define DUMP_x(v) DUMPf("%s = 0x%x", #v, v)
 #define DUMP_s(v) DUMPf("%s = %s", #v, v)
 #define DUMP_c(v) DUMPf("%s = %c", #v, v)
 #define DUMP_p(v) DUMPf("%s = %p", #v, v)
-#define DUMP_buf(v, l) DUMPf("%s = %.*s", #v, l, v)
+#define DUMP_buf(v, l) DUMPf("%s = %.*s", #v, (int)(l), v)
 
 /*
  * the following is the time in seconds that fnord should wait for a valid 
@@ -123,7 +124,7 @@ char           *remote_port;
 char           *remote_ident;
 
 #define BUFFER_OUTSIZE 8192
-char stdout_buf[BUFFER_OUTSIZE];
+char            stdout_buf[BUFFER_OUTSIZE];
 
 static void
 sanitize(char *ua)
@@ -158,10 +159,10 @@ badrequest(long code, const char *httpcomment, const char *message)
     retcode = code;
     dolog(0);
     printf("HTTP/1.0 %ld %s\r\nConnection: close\r\n", code, httpcomment);
-    if (message && message[0]) {
+    if (message) {
         printf("Content-Length: %lu\r\nContent-Type: text/html\r\n\r\n",
-               (unsigned long) strlen(message));
-        fputs(message, stdout);
+               (unsigned long) (strlen(message) * 2) + 15);
+        printf("<title>%s</title>%s", message, message);
     } else {
         fputs("\r\n", stdout);
     }
@@ -216,47 +217,64 @@ elen(register const char *const *e)
     return i;
 }
 
-static ssize_t
-read_header(int fd, char *buf, size_t buflen, size_t *headerlen)
+/*
+ * Read header block. Try to read from stdin until \r?\n\r?\n is
+ * encountered.  Read no more than *buflen bytes.  Convert bare \n to
+ * \r\n. Preserve state across calls, provided buf is the same. Returns:
+ * 1 found 0 not found, call again -1 EOF or other error 
+ */
+static int
+read_header(FILE * f, char *buf, size_t * buflen)
 {
-    size_t len = 0;
-    int found = 0;
-    size_t p = 0;
+    static char    *lastbuf = NULL;
+    static int      found = 0;
+    static int      bare = 1;   /* LF here would be bare */
+    int             bufsize = *buflen;
 
-    while (found < 2) {
-        int             tmp;
+    if (lastbuf != buf) {
+        lastbuf = buf;
+        bare = 1;
+        found = 0;
+    }
+    *buflen = 0;
 
-        tmp = read(fd, buf + len, buflen - len);
-        if (tmp < 0) {
-            return -1;
+    while (*buflen + bare < bufsize) {
+        int             c = getchar();
+
+        switch (c) {
+            case EOF:
+                if (errno == EWOULDBLOCK) {
+                    return 0;
+                } else {
+                    return -1;
+                }
+                break;
+            case '\r':
+                bare = 0;
+                break;
+            case '\n':
+                if (bare) {
+                    buf[(*buflen)++] = '\r';
+                    bare = 1;
+                }
+                found += 1;
+                break;
+            default:
+                found = 0;
+                bare = 1;
+                break;
         }
-        if (tmp == 0) {
-            break;
-        }
-        len += tmp;
+        buf[(*buflen)++] = c;
 
-        for (; (found < 2) && (p < len); p += 1) {
-            switch (buf[p]) {
-                case '\n':
-                    found += 1;
-                    break;
-                case '\r':
-                    break;
-                default:
-                    found = 0;
-                    break;
-            }
+        if (found == 2) {
+            return 1;
         }
     }
 
-    if (headerlen) {
-        *headerlen = p;
-    }
-
-    return len;
+    return 0;
 }
 
-char *
+char           *
 env_append(const char *key, const char *val)
 {
     static char     buf[MAXHEADERLEN * 2 + PATH_MAX + 200];
@@ -407,20 +425,21 @@ cgi_child(int sig)
     signal(SIGCHLD, cgi_child);
 }
 
-/* Convert bare \n to \r\n in header.  Return 0 if
- * header is over. */
+/*
+ * Convert bare \n to \r\n in header.  Return 0 if header is over. 
+ */
 static int
 cgi_send_correct_http(const char *s, unsigned int sl)
 {
     unsigned int    i;
-    int newline = 0;
+    int             newline = 0;
 
     for (i = 0; i < sl; i += 1) {
         switch (s[i]) {
             case '\r':
                 if (s[i + 1] == '\n') {
                     i += 1;
-            case '\n': 
+            case '\n':
                     printf("\r\n");
                     if (newline) {
                         fwrite(s + i + 1, sl - i - 1, 1, stdout);
@@ -486,16 +505,20 @@ start_cgi(int nph, const char *pathinfo, const char *const *envp)
                  * read from cgi 
                  */
                 if (pfd[0].revents & POLLIN) {
-                    size_t len;
+                    size_t          len;
 
                     if (startup) {
-                        /* XXX: could block :< */
-                        len = read_header(fd[0], ibuf, sizeof ibuf, NULL);
+                        /*
+                         * XXX: could block :< 
+                         */
+                        // len = read_header(fd[0], ibuf, sizeof ibuf,
+                        // NULL);
+                        len = 0;
                     } else {
                         len = read(fd[0], ibuf, sizeof ibuf);
                     }
-                    DUMP_d(len);
-                    
+                    DUMP_u((unsigned int) len);
+
                     if (0 == len) {
                         break;
                     }
@@ -509,7 +532,7 @@ start_cgi(int nph, const char *pathinfo, const char *const *envp)
                     if (startup) {
                         if (nph) {      /* NPH-CGI */
                             startup = 0;
-                            printf("%.*s", len, ibuf);
+                            printf("%.*s", (int) len, ibuf);
                             /*
                              * skip HTTP/x.x 
                              */
@@ -741,15 +764,18 @@ matchcommalist(const char *needle, const char *haystack)
      * return nonzero if match was found 
      */
     int             len = strlen(needle);
+
+    DUMP_s(needle);
+    DUMP_s(haystack);
     if (strncmp(needle, haystack, len))
         return 0;
     switch (haystack[len]) {
-    case ';':
-    case ',':
-    case '\r':
-    case '\n':
-    case 0:
-        return 1;
+        case ';':
+        case ',':
+        case '\r':
+        case '\n':
+        case 0:
+            return 1;
     }
     return 0;
 }
@@ -758,6 +784,9 @@ static int
 findincommalist(const char *needle, const char *haystack)
 {
     const char     *accept;
+
+    DUMP_s(needle);
+    DUMP_s(haystack);
     for (accept = haystack; accept;) {
         /*
          * format: foo/bar, 
@@ -772,6 +801,7 @@ findincommalist(const char *needle, const char *haystack)
             ++tmp;
         }
         final = (*tmp == 0 || *tmp == ';');
+        DUMP_s(accept);
         if (matchcommalist("*/*", accept))
             break;
         if (matchcommalist(haystack, accept))
@@ -851,100 +881,100 @@ timerfc(const char *s)
     do {
         c = *s++;
         switch (state) {
-        case D_START:
-            if (c == ' ') {
-                state = D_MON;
-                isctime = 1;
-            } else if (c == ',')
-                state = D_DAY;
-            break;
-        case D_MON:
-            if (isalpha(c)) {
-                if (n < 3)
-                    month[n++] = c;
-            } else {
-                if (n < 3)
-                    return -1;
-                n = 0;
-                state = isctime ? D_DAY : D_YEAR;
-            }
-            break;
-        case D_DAY:
-            if (c == ' ' && flag);
-            else if (isdigit(c)) {
-                flag = 0;
-                n = 10 * n + (c - '0');
-            } else {
-                day = n;
-                n = 0;
-                state = isctime ? D_HOUR : D_MON;
-            }
-            break;
-        case D_YEAR:
-            if (isdigit(c))
-                n = 10 * n + (c - '0');
-            else {
-                year = n;
-                n = 0;
-                state = isctime ? D_END : D_HOUR;
-            }
-            break;
-        case D_HOUR:
-            if (isdigit(c))
-                n = 10 * n + (c - '0');
-            else {
-                hour = n;
-                n = 0;
-                state = D_MIN;
-            }
-            break;
-        case D_MIN:
-            if (isdigit(c))
-                n = 10 * n + (c - '0');
-            else {
-                min = n;
-                n = 0;
-                state = D_SEC;
-            }
-            break;
-        case D_SEC:
-            if (isdigit(c))
-                n = 10 * n + (c - '0');
-            else {
-                sec = n;
-                n = 0;
-                state = isctime ? D_YEAR : D_END;
-            }
-            break;
+            case D_START:
+                if (c == ' ') {
+                    state = D_MON;
+                    isctime = 1;
+                } else if (c == ',')
+                    state = D_DAY;
+                break;
+            case D_MON:
+                if (isalpha(c)) {
+                    if (n < 3)
+                        month[n++] = c;
+                } else {
+                    if (n < 3)
+                        return -1;
+                    n = 0;
+                    state = isctime ? D_DAY : D_YEAR;
+                }
+                break;
+            case D_DAY:
+                if (c == ' ' && flag);
+                else if (isdigit(c)) {
+                    flag = 0;
+                    n = 10 * n + (c - '0');
+                } else {
+                    day = n;
+                    n = 0;
+                    state = isctime ? D_HOUR : D_MON;
+                }
+                break;
+            case D_YEAR:
+                if (isdigit(c))
+                    n = 10 * n + (c - '0');
+                else {
+                    year = n;
+                    n = 0;
+                    state = isctime ? D_END : D_HOUR;
+                }
+                break;
+            case D_HOUR:
+                if (isdigit(c))
+                    n = 10 * n + (c - '0');
+                else {
+                    hour = n;
+                    n = 0;
+                    state = D_MIN;
+                }
+                break;
+            case D_MIN:
+                if (isdigit(c))
+                    n = 10 * n + (c - '0');
+                else {
+                    min = n;
+                    n = 0;
+                    state = D_SEC;
+                }
+                break;
+            case D_SEC:
+                if (isdigit(c))
+                    n = 10 * n + (c - '0');
+                else {
+                    sec = n;
+                    n = 0;
+                    state = isctime ? D_YEAR : D_END;
+                }
+                break;
         }
     } while (state != D_END && c);
     switch (month[0]) {
-    case 'A':
-        mon = (month[1] == 'p') ? 4 : 8;
-        break;
-    case 'D':
-        mon = 12;
-        break;
-    case 'F':
-        mon = 2;
-        break;
-    case 'J':
-        mon = (month[1] == 'a') ? 1 : ((month[2] == 'l') ? 7 : 6);
-        break;
-    case 'M':
-        mon = (month[2] == 'r') ? 3 : 5;
-        break;
-    case 'N':
-        mon = 11;
-        break;
-    case 'O':
-        mon = 10;
-        break;
-    case 'S':
-        mon = 9;
-        break;
-    default:
-        return -1;
+        case 'A':
+            mon = (month[1] == 'p') ? 4 : 8;
+            break;
+        case 'D':
+            mon = 12;
+            break;
+        case 'F':
+            mon = 2;
+            break;
+        case 'J':
+            mon = (month[1] == 'a') ? 1 : ((month[2] == 'l') ? 7 : 6);
+            break;
+        case 'M':
+            mon = (month[2] == 'r') ? 3 : 5;
+            break;
+        case 'N':
+            mon = 11;
+            break;
+        case 'O':
+            mon = 10;
+            break;
+        case 'S':
+            mon = 9;
+            break;
+        default:
+            return -1;
     }
     if (year <= 100)
         year += (year < 70) ? 2000 : 1900;
@@ -971,7 +1001,7 @@ static struct stat st;
  * try to return a file 
  */
 static int
-doit(char *buf, int buflen, char *url, int explicit)
+doit(char *headerbuf, size_t headerlen, char *url, int explicit)
 {
     int             fd = -1;
     char           *accept;
@@ -979,23 +1009,32 @@ doit(char *buf, int buflen, char *url, int explicit)
         ++url;
     getmimetype(url, explicit);
     {
-        char           *b = buf;
-        int             l = buflen;
+        char           *b = headerbuf;
+        int             l = headerlen;
         for (;;) {
             char           *h = header(b, l, "Accept");
+
+            DUMP_p(h);
+            DUMP_s(h);
+            DUMP_s(mimetype);
             if (!h)
                 goto ok;
-            if (findincommalist(mimetype, h))
+            if (findincommalist(mimetype, h)) {
+                DUMP();
                 goto ok;
+            }
             l -= (h - b) + 1;
             b = h + 1;
         }
+        DUMP();
         retcode = 406;
         goto bad;
     }
   ok:
+    DUMP();
     if (encoding) {             /* see if client accepts the encoding */
-        char           *tmp = header(buf, buflen, "Accept-Encoding");
+        char           *tmp =
+            header(headerbuf, headerlen, "Accept-Encoding");
         if (!tmp || !strstr(tmp, "gzip")) {
             retcode = 406;
             goto bad;
@@ -1017,7 +1056,7 @@ doit(char *buf, int buflen, char *url, int explicit)
          */
         {
             char           *field =
-                header(buf, buflen, "If-Modified-Since");
+                header(headerbuf, headerlen, "If-Modified-Since");
 
             if (field) {
                 time_t          ims;
@@ -1031,7 +1070,7 @@ doit(char *buf, int buflen, char *url, int explicit)
         }
         rangestart = 0;
         rangeend = st.st_size;
-        if ((accept = header(buf, buflen, "Range"))) {
+        if ((accept = header(headerbuf, headerlen, "Range"))) {
             /*
              * format: "bytes=17-23", "bytes=23-" 
              */
@@ -1298,11 +1337,11 @@ serve_read_write(int fd)
         while (len > 0) {
             int             written;
             switch (poll(&duh, 1, (fini - now) * 1000)) {
-            case 0:
-                if (now < fini)
-                    continue;   /* fall through */
-            case -1:
-                return 1;       /* timeout or error */
+                case 0:
+                    if (now < fini)
+                        continue;       /* fall through */
+                case -1:
+                    return 1;   /* timeout or error */
             }
             if ((written = write(1, tmp2, len)) < 0)
                 return -1;
@@ -1359,11 +1398,11 @@ serve_mmap(int fd)
         while (len > 0) {
             int             written;
             switch (poll(&duh, 1, (fini - now) * 1000)) {
-            case 0:
-                if (now < fini)
-                    continue;   /* fall through */
-            case -1:
-                return 1;       /* timeout or error */
+                case 0:
+                    if (now < fini)
+                        continue;       /* fall through */
+                case -1:
+                    return 1;   /* timeout or error */
             }
             if ((written = write(1, tmp2, len)) < 0)
                 return -1;
@@ -1460,36 +1499,36 @@ serve_static_data(int fd)
 int
 main(int argc, char *argv[], const char *const *envp)
 {
-    char            buf[MAXHEADERLEN];
+    char            headerbuf[MAXHEADERLEN];
     char           *nurl,
                    *origurl;
     int             docgi = 0;
     int             dirlist = 0;
     int             redirect = 0;
     int             portappend = 0;
-    size_t          len;
-    ssize_t         in;
+    size_t          headerlen;
 
     {
         int             opt;
 
         while (-1 != (opt = getopt(argc, argv, "cdrp"))) {
             switch (opt) {
-            case 'c':
-                docgi = 1;
-                break;
-            case 'd':
-                dirlist = 1;
-                break;
-            case 'r':
-                redirect = 1;
-                break;
-            case 'p':
-                portappend = 1;
-                break;
-            default:
-                fprintf(stderr, "Usage: %s [-c] [-d] [-r] [-p]\n", argv[0]);
-                return 69;
+                case 'c':
+                    docgi = 1;
+                    break;
+                case 'd':
+                    dirlist = 1;
+                    break;
+                case 'r':
+                    redirect = 1;
+                    break;
+                case 'p':
+                    portappend = 1;
+                    break;
+                default:
+                    fprintf(stderr, "Usage: %s [-c] [-d] [-r] [-p]\n",
+                            argv[0]);
+                    return 69;
             }
         }
     }
@@ -1501,40 +1540,56 @@ main(int argc, char *argv[], const char *const *envp)
 
   handlenext:
     encoding = 0;
+
     alarm(READTIMEOUT);
 
-    in = read_header(0, buf, sizeof buf, &len);
-    if (len < 10)
-        badrequest(400, "Bad Request",
-                   "<title>Bad Request</title>That does not look like HTTP to me...");
-    buf[len] = 0;
+    headerlen = sizeof headerbuf;
+    switch (read_header(stdin, headerbuf, &headerlen)) {
+        case -1:
+            return 0;
+            break;
+        case 0:
+            badrequest(400, "Bad Request", "Header too long");
+            break;
+    }
 
-    if (!strncasecmp(buf, "GET /", 5)) {
+    alarm(0);
+
+    if (headerlen < 10)
+        badrequest(400, "Bad Request", "That does not look like HTTP");
+
+    if (!memcmp(headerbuf, "GET /", 5)) {
         method = GET;
-        url = buf + 4;
-    } else if (!strncasecmp(buf, "POST /", 6)) {
+        url = headerbuf + 4;
+    } else if (!memcmp(headerbuf, "POST /", 6)) {
         method = POST;
-        url = buf + 5;
-    } else if (!strncasecmp(buf, "HEAD /", 6)) {
+        url = headerbuf + 5;
+    } else if (!memcmp(headerbuf, "HEAD /", 6)) {
         method = HEAD;
-        url = buf + 5;
+        url = headerbuf + 5;
     } else
-        badrequest(400, "Bad Request",
-                   "<title>Bad Request</title>Unsupported HTTP method.");
+        badrequest(405, "Method Not Allowed", "Unsupported HTTP method.");
 
     origurl = url;
 
     {
-        char           *nl = strchr(buf, '\r');
-        char           *space = strchr(url, ' ');
-        if (space >= nl)
-            badrequest(400, "Bad Request",
-                       "<title>Bad Request</title>HTTP/0.9 not supported");
-        if (strncmp(space + 1, "HTTP/1.", 7))
-            badrequest(400, "Bad Request",
-                       "<title>Bad Request</title>Only HTTP 1.x supported");
+        /*
+         * If we got here we are *guaranteed* (by read_header) to have at
+         * least one \r 
+         */
+        char           *nl = memchr(headerbuf, '\r', headerlen);
+        char           *space = memchr(url, ' ', nl - url);
+
+        if (!space) {
+            badrequest(400, "Bad Request", "HTTP/0.9 not supported");
+        }
+        if (memcmp(space + 1, "HTTP/1.", 7))
+            badrequest(400, "Bad Request", "Only HTTP/1.x supported");
         *space = 0;
         httpversion = space[8] - '0';
+        if (httpversion > 1) {
+            badrequest(400, "Bad Request", "HTTP Version not supported");
+        }
         keepalive = 0;
 
         /*
@@ -1572,39 +1627,42 @@ main(int argc, char *argv[], const char *const *envp)
                 ++d;
             }
             *d = 0;
-            /*
-             * not good enough, we need a second pass 
-             */
         }
 
+        /*
+         * XXX: check use of uri to see if it needs to be duplicated 
+         */
         uri = strdup(url);
     }
 
     {
         char           *tmp;
-        ua = header(buf, len, "User-Agent");
-        refer = header(buf, len, "Referer");
-        accept_enc = header(buf, len, "Accept-Encoding");
-        if ((tmp = header(buf, len, "Connection"))) {   /* see if it's
-                                                         * "keep-alive"
-                                                         * or * "close" */
+        ua = header(headerbuf, headerlen, "User-Agent");
+        refer = header(headerbuf, headerlen, "Referer");
+        accept_enc = header(headerbuf, headerlen, "Accept-Encoding");
+        if ((tmp = header(headerbuf, headerlen, "Connection"))) {       /* see 
+                                                                         * if 
+                                                                         * it's
+                                                                         * *
+                                                                         * "keep-alive"
+                                                                         * * or "close" */
             if (!strcasecmp(tmp, "keep-alive"))
                 keepalive = 1;
             else if (!strcasecmp(tmp, "close"))
                 keepalive = -1;
         }
-        cookie = header(buf, len, "Cookie");
-        auth_type = header(buf, len, "Authorization");
+        cookie = header(headerbuf, headerlen, "Cookie");
+        auth_type = header(headerbuf, headerlen, "Authorization");
         if (method == POST) {
-            content_type = header(buf, len, "Content-Type");
-            content_len = header(buf, len, "Content-Length");
-            if (content_len) {
-                post_len = strtoul(content_len, NULL, 10);
-                post_miss = buf + len + 1;
-                post_mlen = in - len - 1;
-                if (post_len <= post_mlen)
-                    post_mlen = post_len;
+            content_type = header(headerbuf, headerlen, "Content-Type");
+            content_len = header(headerbuf, headerlen, "Content-Length");
+
+            if ((!content_type) || (!content_len)) {
+                badrequest(411, "Length Required",
+                           "POST missing Content-Type or Content-Length");
             }
+
+            post_len = strtoul(content_len, NULL, 10);
         }
     }
 
@@ -1614,7 +1672,7 @@ main(int argc, char *argv[], const char *const *envp)
     {
         char           *Buf;
         int             i;
-        host = header(buf, len, "Host");
+        host = header(headerbuf, headerlen, "Host");
         if (!host)
             i = 100;
         else
@@ -1645,8 +1703,7 @@ main(int argc, char *argv[], const char *const *envp)
         for (i = strlen(host); i >= 0; --i)
             if ((host[i] = tolower(host[i])) == '/')
               hostb0rken:
-                badrequest(400, "Bad Request",
-                           "<title>Bad Request</title>Bullshit Host header");
+                badrequest(400, "Bad Request", "Invalid host header");
         if (host[0] == '.')
             goto hostb0rken;
         if (keepalive > 0) {
@@ -1680,7 +1737,7 @@ main(int argc, char *argv[], const char *const *envp)
             }
             if (chdir("default") && argc < 2) {
                 badrequest(404, "Not Found",
-                           "<title>Not Found</title>This host is not served here.");
+                           "This host is not served here.");
             }
         }
     }
@@ -1693,7 +1750,7 @@ main(int argc, char *argv[], const char *const *envp)
             pid_t           child;
             const char     *authorization;
 
-            authorization = header(buf, len, "Authorization");
+            authorization = header(headerbuf, headerlen, "Authorization");
             child = fork();
             if (child < 0) {
                 badrequest(500, "Internal Server Error",
@@ -1745,16 +1802,19 @@ main(int argc, char *argv[], const char *const *envp)
     if (docgi) {
         char           *tmp,
                        *pathinfo;
+
         pathinfo = 0;
-        for (tmp = url; tmp < nurl; ++tmp)
+        for (tmp = url; tmp < nurl; ++tmp) {
             if (findcgi(tmp)) {
                 nurl = tmp;
                 if (tmp[4] == '/')
                     pathinfo = tmp + 4;
                 break;
             }
+        }
         if (pathinfo) {
             int             len = strlen(pathinfo) + 1;
+
             tmp = alloca(len);
             memcpy(tmp, pathinfo, len);
             *pathinfo = 0;
@@ -1762,6 +1822,7 @@ main(int argc, char *argv[], const char *const *envp)
         }
         if (findcgi(nurl)) {
             int             i;
+
             if ((method == HEAD))
                 badrequest(400, "Bad Request",
                            "Illegal HTTP method for Gateway call.");
@@ -1786,7 +1847,9 @@ main(int argc, char *argv[], const char *const *envp)
 
     {
         int             fd;
-        if ((fd = doit(buf, len, url, 1)) >= 0) {       /* file was there */
+        if ((fd = doit(headerbuf, headerlen, url, 1)) >= 0) {   /* file
+                                                                 * was
+                                                                 * there */
             /*
              * look if file.gz is also there and acceptable 
              */
@@ -1797,7 +1860,7 @@ main(int argc, char *argv[], const char *const *envp)
 
             strcpy(fnord, url);
             strcpy(fnord + ul, ".gz");
-            fd2 = doit(buf, len, fnord, 0);
+            fd2 = doit(headerbuf, headerlen, fnord, 0);
             if (fd2 >= 0) {     /* yeah! */
                 url = fnord;
                 close(fd);
@@ -1815,12 +1878,12 @@ main(int argc, char *argv[], const char *const *envp)
             fputs(mimetype, stdout);
             fputs("\r\n", stdout);
             switch (keepalive) {
-            case -1:
-                fputs("Connection: close\r\n", stdout);
-                break;
-            case 1:
-                fputs("Connection: Keep-Alive\r\n", stdout);
-                break;
+                case -1:
+                    fputs("Connection: close\r\n", stdout);
+                    break;
+                case 1:
+                    fputs("Connection: Keep-Alive\r\n", stdout);
+                    break;
             }
             if (encoding) {
                 printf("Content-Encoding: %s\r\n", encoding);
@@ -1837,12 +1900,11 @@ main(int argc, char *argv[], const char *const *envp)
                 /*
                  * "Sun, 06 Nov 1994 08:49:37 GMT" 
                  */
-                printf("Last-Modified: %.3s, %02d %.3s %d %02d:%02d:%02d GMT\r\n",
-                       days + (3 * x->tm_wday),
-                       x->tm_mday,
-                       months + (3 * x->tm_mon),
-                       x->tm_year + 1900,
-                       x->tm_hour, x->tm_min, x->tm_sec);
+                printf
+                    ("Last-Modified: %.3s, %02d %.3s %d %02d:%02d:%02d GMT\r\n",
+                     days + (3 * x->tm_wday), x->tm_mday,
+                     months + (3 * x->tm_mon), x->tm_year + 1900,
+                     x->tm_hour, x->tm_min, x->tm_sec);
             }
             if (rangestart || rangeend != st.st_size) {
                 printf
@@ -1854,12 +1916,12 @@ main(int argc, char *argv[], const char *const *envp)
             fputs("\r\n", stdout);
             if (method == GET || method == POST) {
                 switch (serve_static_data(fd)) {
-                case 0:
-                    break;
-                case -1:
-                    goto error500;
-                case 1:
-                    return 1;
+                    case 0:
+                        break;
+                    case -1:
+                        goto error500;
+                    case 1:
+                        return 1;
                 }
 #ifdef TCP_CORK
                 if (corked) {
@@ -1882,28 +1944,26 @@ main(int argc, char *argv[], const char *const *envp)
         }
     }
     switch (retcode) {
-    case 404:
-        {
-            char           *space = alloca(strlen(url) + 2);
+        case 404:
+            {
+                char           *space = alloca(strlen(url) + 2);
 
-            if (handleindexcgi(url, origurl, space))
-                goto indexcgi;
-            handleredirect(url, origurl);
-            if (dirlist) {
-                handledirlist(origurl);
+                if (handleindexcgi(url, origurl, space))
+                    goto indexcgi;
+                handleredirect(url, origurl);
+                if (dirlist) {
+                    handledirlist(origurl);
+                }
+                badrequest(404, "Not Found", "No such file or directory.");
             }
-            badrequest(404, "Not Found",
-                       "<title>Not Found</title>No such file or directory.");
-        }
-    case 406:
-        badrequest(406, "Not Acceptable",
-                   "<title>Not Acceptable</title>Nothing acceptable found.");
-    case 416:
-        badrequest(416, "Requested Range Not Satisfiable", "");
-    case 304:
-        badrequest(304, "Not Changed", "");
-    case 500:
-        badrequest(500, "Internal Server Error", "");
+        case 406:
+            badrequest(406, "Not Acceptable", "Nothing acceptable found.");
+        case 416:
+            badrequest(416, "Requested Range Not Satisfiable", "");
+        case 304:
+            badrequest(304, "Not Changed", "");
+        case 500:
+            badrequest(500, "Internal Server Error", "");
     }
     return 1;
 }
