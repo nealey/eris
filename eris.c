@@ -668,8 +668,6 @@ header(char *buf, int buflen, const char *hname)
     return 0;
 }
 
-static const char *mimetype;
-
 static struct mimeentry {
     const char     *name,
                    *type;
@@ -931,7 +929,6 @@ doit(char *headerbuf, size_t headerlen, char *url)
 
     while (url[0] == '/')
         ++url;
-    mimetype = getmimetype(url);
     if ((fd = open(url, O_RDONLY)) >= 0) {
         if (fstat(fd, &st))
             goto bad;
@@ -1747,9 +1744,8 @@ main(int argc, char *argv[], const char *const *envp)
                 fputs("HTTP/1.0 206 Partial Content\r\n", stdout);
             else
                 fputs("HTTP/1.0 200 OK\r\n", stdout);
-            fputs("Server: " FNORD "\r\nContent-Type: ", stdout);
-            fputs(mimetype, stdout);
-            fputs("\r\n", stdout);
+            printf("Server: %s\r\n", FNORD);
+            printf("Content-Type: %s\r\n", getmimetype(url));
             switch (keepalive) {
                 case -1:
                     fputs("Connection: close\r\n", stdout);

@@ -1,4 +1,4 @@
-2:
+2.0:
   Remove Accept header parsing: it was broken and the result was
     that the Accept header had no effect
   Remove the .gz trick: I never used it, but I would not be averse
