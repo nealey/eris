@@ -1,17 +1,18 @@
 Eris HTTPD is a part of Dirtbags Capture The Flag
 (http://dirtbags.net/ctf/).  As I was adding more and more patches
-against fnord 1.10 (http://www.fefe.de), I decided to fork fnord into
-a new project.  Fnord's author, Fefe, approved of the fork.
+against fnord 1.10 (http://www.fefe.de/), I decided to fork fnord into
+a new project.  Fnord's author approved of the fork.
 
-The differences between eris and fnord are:
+Significant differences between eris and fnord are:
 
 * command-line arguments instead of compile-time defines
 * eliminated use of libowfat
 * no build dependency of dietlibc
 * elimination of "old style symlink handling"
-* elimination of user switching (use tcpserver)
-* elimination of chroot code (use chroot)
-* several bugfixes (which have been sent to the fnord mail list)
+* elimination of user switching (you can use tcpserver -[ug])
+* elimination of chroot code (you can use chroot)
+* several bugfixes (sent to the fnord mail list)
+* removal of (non-functional) content-negotiation
 
 ----
 
@@ -30,16 +31,16 @@ user agent with spaces replaced by underscores, the next token (none) is
 the Referer HTTP header or "none" if none was given, and the rest of
 each line is the decoded requested URL.
 
-eris httpd does simple virtual hosting.  If the Host: HTTP header is
-there, eris will try to chdir to a directory of that name, i.e. if the
-client asks for "/" on host "www.fefe.de:80", eris will look for
-"www.fefe.de:80/index.html".  Eris will also try the directory
-"default" if no specific directory for the virtual host was there.  If
-the directory is a dangling symlink and eris was compiled with
--DREDIRECT (default), eris will redirect the whole site.  Examples:
+eris does simple virtual hosting.  If the Host:  HTTP header is there,
+eris will try to chdir to a directory of that name, i.e. if the client
+asks for "/" on host "www.fefe.de", eris will look for
+"www.fefe.de/index.html".  Eris will also try the directory "default"
+if no specific directory for the virtual host was there.  If the
+directory is a dangling symlink, eris will redirect the whole site. 
+Examples:
 
-  lrwxrwxrwx    1 leitner  users          19 May  5 01:09 www.foo.de:80 -> http://www.baz.de/
-  lrwxrwxrwx    1 leitner  users          20 May  5 01:12 www.bar.de:80 -> =http://www.baz.de/
+  lrwxrwxrwx    1 leitner  users          19 May  5 01:09 www.foo.de -> http://www.baz.de/
+  lrwxrwxrwx    1 leitner  users          20 May  5 01:12 www.bar.de -> =http://www.baz.de/
 
 http://www.foo.de/blub.html will be redirected to http://www.baz.de/blub.html.
 http://www.bar.de/blub.html will be redirected to http://www.baz.de/.
@@ -59,18 +60,19 @@ symlink must point to a full URL, i.e.
 
   ln -s ftp://foobar.math.fu-berlin.de/pub/dietlibc/dietlibc-0.11.tar.bz2 dietlibc-0.11.tar.bz2
 
-eris implements in-place substitution of * to *.gz
-if the file is available and the client supports the mime-type and
-content-encoding.  That means you can save substantial bandwidth by
-having an index.html.gz for each index.html, as most clients can
-transparently decode gzipped files.
-
 eris will change dots at the start of file or directory names to colons
 in the query before trying to answer them.
 
 eris understands and implements keep-alive connections.
 
-eris can use sendfile on Linux to enable zero-copy TCP.
+eris will use sendfile on Linux to enable zero-copy TCP.
+
+If eris is given the -a option, it look for a file named ".http-auth"
+in the root of the host directory.  If it's found, eris will run it as
+".http-auth $host $url" with the environment variable
+"HTTP_AUTHORIZATION" set to the "Authorization" header sent by the
+client.  If the program returns 0, access will be granted; if it
+returns 1, eris will return a 401 response.
 
 If eris is given the -c option, it will regard files
 whose names end with ".cgi" as CGI programs and try to execute them.

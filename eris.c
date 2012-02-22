@@ -668,8 +668,7 @@ header(char *buf, int buflen, const char *hname)
     return 0;
 }
 
-static char    *encoding = 0;
-static char    *mimetype = "application/octet-stream";
+static const char *mimetype;
 
 static struct mimeentry {
     const char     *name,
@@ -710,108 +709,32 @@ static struct mimeentry {
     "xpm", "image/x-xpixmap"}, {
     "xwd", "image/x-xwindowdump"}, {
     "ico", "image/x-icon"}, {
-0}};
+    0, 0}};
+
+static const char *default_mimetype = "application/octet-stream";
 
 /*
- * try to find out MIME type and content encoding. This is called twice,
- * once for the actual URL and once for URL.gz. If the actual URL already
- * ende with .gz, return application/octet-stream to make sure the client
- * can download the file even if he does not support gzip encoding 
+ * Determine MIME type from file extension
  */
-static void
-getmimetype(char *url, int explicit)
+static const char *
+getmimetype(char *url)
 {
-    char            save;
-    int             ext;
-    ext = strlen(url);
-    while (ext > 0 && url[ext] != '.' && url[ext] != '/')
-        --ext;
-    if (url[ext] == '.') {
-        ++ext;
-        if (!strcmp(url + ext, "bz2"))
-            goto octetstream;
-        if (!strcmp(url + ext, "gz")) {
-            if (!encoding) {
-                if (explicit)
-                    goto octetstream;
-                encoding = "gzip";
-                save = url[ext - 1];
-                url[ext - 1] = 0;
-                getmimetype(url, explicit);
-                url[ext - 1] = save;
-            } else
-              octetstream:
-                mimetype = "application/octet-stream";
-        } else {
-            int             i;
-            for (i = 0; mimetab[i].name; ++i)
-                if (!strcmp(mimetab[i].name, url + ext)) {
-                    mimetype = (char *) mimetab[i].type;
-                    break;
-                }
+    char *ext = strrchr(url, '.');
+
+
+    if (ext) {
+        int             i;
+
+        ext++;
+        for (i = 0; mimetab[i].name; ++i) {
+            if (!strcmp(mimetab[i].name, ext)) {
+                return mimetab[i].type;
+            }
         }
     }
+    return default_mimetype;
 }
 
-static int
-matchcommalist(const char *needle, const char *haystack)
-{
-    /*
-     * needle: "text/html", haystack: the accept header, "text/html,
-     * text/plain\r\n" 
-     */
-    /*
-     * return nonzero if match was found 
-     */
-    int             len = strlen(needle);
-
-    DUMP_s(needle);
-    DUMP_s(haystack);
-    if (strncmp(needle, haystack, len))
-        return 0;
-    switch (haystack[len]) {
-        case ';':
-        case ',':
-        case '\r':
-        case '\n':
-        case 0:
-            return 1;
-    }
-    return 0;
-}
-
-static int
-findincommalist(const char *needle, const char *haystack)
-{
-    const char     *accept;
-
-    DUMP_s(needle);
-    DUMP_s(haystack);
-    for (accept = haystack; accept;) {
-        /*
-         * format: foo/bar, 
-         */
-        const char     *tmp = accept;
-        int             final;
-        while (*tmp) {
-            if (*tmp == ';')
-                break;
-            else if (*tmp == ',')
-                break;
-            ++tmp;
-        }
-        final = (*tmp == 0 || *tmp == ';');
-        DUMP_s(accept);
-        if (matchcommalist("*/*", accept))
-            break;
-        if (matchcommalist(haystack, accept))
-            break;
-        accept = tmp + 1;
-        if (final)
-            return 0;
-    }
-    return 1;
-}
 
 /*
  *   timerfc function Copyright 1996, Michiel Boland.
@@ -1001,45 +924,14 @@ static struct stat st;
  * try to return a file 
  */
 static int
-doit(char *headerbuf, size_t headerlen, char *url, int explicit)
+doit(char *headerbuf, size_t headerlen, char *url)
 {
     int             fd = -1;
     char           *accept;
+
     while (url[0] == '/')
         ++url;
-    getmimetype(url, explicit);
-    {
-        char           *b = headerbuf;
-        int             l = headerlen;
-        for (;;) {
-            char           *h = header(b, l, "Accept");
-
-            DUMP_p(h);
-            DUMP_s(h);
-            DUMP_s(mimetype);
-            if (!h)
-                goto ok;
-            if (findincommalist(mimetype, h)) {
-                DUMP();
-                goto ok;
-            }
-            l -= (h - b) + 1;
-            b = h + 1;
-        }
-        DUMP();
-        retcode = 406;
-        goto bad;
-    }
-  ok:
-    DUMP();
-    if (encoding) {             /* see if client accepts the encoding */
-        char           *tmp =
-            header(headerbuf, headerlen, "Accept-Encoding");
-        if (!tmp || !strstr(tmp, "gzip")) {
-            retcode = 406;
-            goto bad;
-        }
-    }
+    mimetype = getmimetype(url);
     if ((fd = open(url, O_RDONLY)) >= 0) {
         if (fstat(fd, &st))
             goto bad;
@@ -1048,9 +940,6 @@ doit(char *headerbuf, size_t headerlen, char *url, int explicit)
          */
         if (S_ISDIR(st.st_mode))
             goto bad;
-        /*
-         * see if the peer accepts MIME type 
-         */
         /*
          * see if the document has been changed 
          */
@@ -1502,6 +1391,7 @@ main(int argc, char *argv[], const char *const *envp)
     char            headerbuf[MAXHEADERLEN];
     char           *nurl,
                    *origurl;
+    int             doauth = 0;
     int             docgi = 0;
     int             dirlist = 0;
     int             redirect = 0;
@@ -1511,8 +1401,11 @@ main(int argc, char *argv[], const char *const *envp)
     {
         int             opt;
 
-        while (-1 != (opt = getopt(argc, argv, "cdrp"))) {
+        while (-1 != (opt = getopt(argc, argv, "acdrp"))) {
             switch (opt) {
+                case 'a':
+                    doauth = 1;
+                    break;
                 case 'c':
                     docgi = 1;
                     break;
@@ -1539,7 +1432,6 @@ main(int argc, char *argv[], const char *const *envp)
     get_ucspi_env();
 
   handlenext:
-    encoding = 0;
 
     alarm(READTIMEOUT);
 
@@ -1741,8 +1633,8 @@ main(int argc, char *argv[], const char *const *envp)
             }
         }
     }
-#ifdef AUTH
-    {
+
+    if (doauth) {
         char           *auth_script = ".http-auth";
         struct stat     st;
 
@@ -1756,12 +1648,10 @@ main(int argc, char *argv[], const char *const *envp)
                 badrequest(500, "Internal Server Error",
                            "Server Resource problem.");
             } else if (child == 0) {
-                const char     *argv[5] =
-                    { auth_script, host, url, authorization, NULL };
-
                 dup2(2, 1);
-                execve(auth_script, argv, envp);
-                _exit(1);
+                setenv("HTTP_AUTHORIZATION", authorization, 1);
+                execl(auth_script, auth_script, host, url, NULL);
+                exit(1);
             } else {
                 int             status;
                 pid_t           childr;
@@ -1786,7 +1676,7 @@ main(int argc, char *argv[], const char *const *envp)
             }
         }
     }
-#endif                          /* AUTH */
+
     nurl = url + strlen(url);
     if (nurl > url)
         --nurl;
@@ -1847,27 +1737,10 @@ main(int argc, char *argv[], const char *const *envp)
 
     {
         int             fd;
-        if ((fd = doit(headerbuf, headerlen, url, 1)) >= 0) {   /* file
-                                                                 * was
-                                                                 * there */
+        if ((fd = doit(headerbuf, headerlen, url)) >= 0) {
             /*
-             * look if file.gz is also there and acceptable 
+             * file was there
              */
-            int             ul = strlen(url);
-            char           *fnord = alloca(ul + 4);
-            int             fd2;
-            char           *oldencoding = encoding;
-
-            strcpy(fnord, url);
-            strcpy(fnord + ul, ".gz");
-            fd2 = doit(headerbuf, headerlen, fnord, 0);
-            if (fd2 >= 0) {     /* yeah! */
-                url = fnord;
-                close(fd);
-                fd = fd2;
-            } else {
-                encoding = oldencoding;
-            }
             retcode = 200;
             dolog(st.st_size);
             if (rangestart || rangeend != st.st_size)
@@ -1884,9 +1757,6 @@ main(int argc, char *argv[], const char *const *envp)
                 case 1:
                     fputs("Connection: Keep-Alive\r\n", stdout);
                     break;
-            }
-            if (encoding) {
-                printf("Content-Encoding: %s\r\n", encoding);
             }
             printf("Content-Length: %llu\r\n",
                    (unsigned long long) (rangeend - rangestart));

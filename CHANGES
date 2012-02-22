@@ -1,4 +1,8 @@
 2:
+  Remove Accept header parsing: it was broken and the result was
+    that the Accept header had no effect
+  Remove the .gz trick: I never used it, but I would not be averse
+    to adding it back if people liked it
   Rename to "eris httpd" to acknowledge fork
   Add regression test suite
   Replace compile-time options with command-line ones
