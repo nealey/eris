@@ -448,133 +448,146 @@ start_cgi(int nph, const char *pathinfo, const char *const *envp)
     int             pid;
     char            cgiheader[BUFFER_SIZE];
     size_t          cgiheaderlen = BUFFER_SIZE;
-    int             fd[2],
-                    df[2];
-    FILE           *cin;
+    int             cin[2];
+    int             cout[2];
+    FILE           *cinf;
 
-    if (pipe(fd) || pipe(df) || !(cin = fdopen(fd[0], "r"))) {
+    if (pipe(cin) || pipe(cout) || !(cinf = fdopen(cin[0], "rb"))) {
         badrequest(500, "Internal Server Error",
                    "Server Resource problem.");
     }
 
-    if ((pid = fork())) {
-        if (pid > 0) {
+    pid = fork();
+    if (-1 == pid) {
+        badrequest(500, "Internal Server Error",
+                   "Unable to fork.");
+    }
+    if (pid) {
+        /* Parent */
+        int             passthru = nph;
+
+        fcntl(cin[0], F_SETFL, O_NONBLOCK);
+        signal(SIGCHLD, cgi_child);
+        signal(SIGPIPE, SIG_IGN);   /* NO! no signal! */
+
+        close(cin[1]);
+        close(cout[0]);
+
+        alarm(CGI_TIMEOUT);
+
+        while (1) {
             int             nfds;
             fd_set          rfds, wfds;
-            int             passthru = nph;
-
-            fcntl(fd[0], F_SETFL, O_NONBLOCK);
-            signal(SIGCHLD, cgi_child);
-            signal(SIGPIPE, SIG_IGN);   /* NO! no signal! */
-
-            close(df[0]);
-            close(fd[1]);
-
+            
             FD_ZERO(&rfds);
             FD_ZERO(&wfds);
-            FD_SET(fd[0], &rfds);
-            nfds = fd[0];
+            FD_SET(cin[0], &rfds);
+            nfds = cin[0];
             
             if (post_len) {
                 /* have post data */
-                FD_SET(df[0], &wfds);
-                if (df[0] > nfds) {
-                    nfds = df[0];
+                FD_SET(cout[1], &wfds);
+                if (cout[1] > nfds) {
+                    nfds = cout[1];
                 }
-            } else if (df[1] >= 0) {
-                close(df[1]);   /* no post data */
-                df[1] = -1;
+            } else if (cout[1] >= 0) {
+                close(cout[1]);   /* no post data */
+                cout[1] = -1;
             }
 
-            while (select(nfds+1, &rfds, &wfds, NULL, NULL) != -1) {
-                if (FD_ISSET(fd[0], &rfds)) {
-                    if (passthru) {
-                        size_t len;
+            if (-1 == select(nfds+1, &rfds, &wfds, NULL, NULL)) {
+                break;
+            }
 
-                        /* Re-use this big buffer */
-                        len = fread(cgiheader, 1, sizeof cgiheader, cin);
-                        if (0 == len) {
-                            /* CGI is done */
-                            break;
-                        }
-                        fwrite(cgiheader, 1, len, stdout);
-                        size += len;
+            if (FD_ISSET(cin[0], &rfds)) {
+                if (passthru) {
+                    size_t len;
+
+                    /* Re-use this big buffer */
+                    len = fread(cgiheader, 1, sizeof cgiheader, cinf);
+                    if (0 == len) {
+                        /* CGI is done */
+                        break;
+                    }
+                    fwrite(cgiheader, 1, len, stdout);
+                    size += len;
+                } else {
+                    int ret;    
+
+                    ret = read_header(cinf, cgiheader, &cgiheaderlen);
+                    if (0 == ret) {
+                        /* Call read_header again */
+                    } else if (-1 == ret) {
+                        /* EOF or error */
+                        badrequest(500, "CGI Error",
+                                   "CGI output too weird");
                     } else {
-                        int ret;    
-
-                        ret = read_header(cin, cgiheader, &cgiheaderlen);
-                        if (0 == ret) {
-                            /* Call read_header again */
-                        } else if (-1 == ret) {
-                            /* EOF or error */
-                            badrequest(500, "CGI Error",
-                                       "CGI output too weird");
-                        } else {
-                            /* Entire header is in memory now */
-                            passthru = 1;
-                            
-                            /* XXX: I think we need to look for Location:
-                             * anywhere, but fnord got away with checking
-                             * only the first header field, so I will too.
-                             */
-                            if (memcmp(cgiheader, "Location: ", 10) == 0) {
-                                retcode = 302;
-                                printf
-                                    ("HTTP/1.0 302 CGI-Redirect\r\nConnection: close\r\n");
-                                fwrite(cgiheader, 1, cgiheaderlen, stdout);
-                                dolog(0);
-                                exit(0);
-                            }
-
-                            retcode = 200;
-                            printf("HTTP/1.0 200 OK\r\nServer: "
-                                   FNORD
-                                   "\r\nPragma: no-cache\r\nConnection: close\r\n");
-                            signal(SIGCHLD, SIG_IGN);
+                        /* Entire header is in memory now */
+                        passthru = 1;
+                        
+                        /* XXX: I think we need to look for Location:
+                         * anywhere, but fnord got away with checking
+                         * only the first header field, so I will too.
+                         */
+                        if (memcmp(cgiheader, "Location: ", 10) == 0) {
+                            retcode = 302;
+                            printf
+                                ("HTTP/1.0 302 CGI-Redirect\r\nConnection: close\r\n");
                             fwrite(cgiheader, 1, cgiheaderlen, stdout);
+                            dolog(0);
+                            exit(0);
                         }
-                    }
-                } else if (FD_ISSET(df[1], &wfds)) {
-                    /*
-                     * write to cgi the post data 
-                     */
-                    if (post_len) {
-                        size_t len;
-                        char buf[BUFFER_SIZE];
-                        size_t nmemb = min(BUFFER_SIZE, post_len);
 
-                        len = fread(buf, 1, nmemb, stdin);
-                        if (len < 1) {
-                            break;
-                        }
-                        post_len -= len;
-                        write(df[1], buf, len);
-                    } else {
-                        close(df[1]);
+                        retcode = 200;
+                        printf("HTTP/1.0 200 OK\r\nServer: "
+                               FNORD
+                               "\r\nPragma: no-cache\r\nConnection: close\r\n");
+                        signal(SIGCHLD, SIG_IGN);
+                        fwrite(cgiheader, 1, cgiheaderlen, stdout);
                     }
                 }
-            }
+            } else if (FD_ISSET(cout[1], &wfds)) {
+                /*
+                 * write to cgi the post data 
+                 */
+                if (post_len) {
+                    size_t len;
+                    char buf[BUFFER_SIZE];
+                    size_t nmemb = min(BUFFER_SIZE, post_len);
 
-            fflush(stdout);
-            dolog(size);
-#ifdef TCP_CORK
-            {
-                int             zero = 0;
-                setsockopt(1, IPPROTO_TCP, TCP_CORK, &zero, sizeof(zero));
+                    len = fread(buf, 1, nmemb, stdin);
+                    if (len < 1) {
+                        break;
+                    }
+                    post_len -= len;
+                    write(cout[1], buf, len);
+                } else {
+                    close(cout[1]);
+                }
             }
-#endif
         }
+        alarm(0);
+
+        fflush(stdout);
+        dolog(size);
+#ifdef TCP_CORK
+        {
+            int             zero = 0;
+            setsockopt(1, IPPROTO_TCP, TCP_CORK, &zero, sizeof(zero));
+        }
+#endif
     } else {
-        close(df[1]);
-        close(fd[0]);
+        /* Child */
 
-        dup2(df[0], 0);
-        dup2(fd[1], 1);
+        close(cout[1]);
+        close(cin[0]);
 
-        close(df[0]);
-        close(fd[1]);
+        dup2(cout[0], 0);
+        dup2(cin[1], 1);
 
-        alarm(CGI_TIMEOUT);
+        close(cout[0]);
+        close(cin[1]);
+
         do_cgi(pathinfo, envp);
     }
     exit(0);
