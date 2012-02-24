@@ -14,7 +14,7 @@
 #include <sys/wait.h>
 #include <grp.h>
 #include <errno.h>
-#include <sys/poll.h>
+#include <sys/select.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
@@ -22,16 +22,14 @@
 #include <sys/mman.h>
 #include <limits.h>
 
+#ifndef min
+#define min(a,b) ((a)<(b)?(a):(b))
+#endif
+
 /*
  * Some things I use for debugging 
  */
-#define XXNODUMP
-
-#ifndef NODUMP
 #define DUMPf(fmt, args...) fprintf(stderr, "%s:%s:%d " fmt "\n", __FILE__, __FUNCTION__, __LINE__, ##args)
-#else
-#define DUMPf(fmt, args...)
-#endif
 #define DUMP() DUMPf("")
 #define DUMP_d(v) DUMPf("%s = %d", #v, v)
 #define DUMP_u(v) DUMPf("%s = %u", #v, v)
@@ -55,33 +53,39 @@
 
 #define CGI_TIMEOUT	(5*60)  /* 5 minutes time-out for CGI to complete */
 
+#ifdef __linux__
 /*
  * defining USE_SENDFILE enables zero-copy TCP on Linux for static files.
- * I measured over 320 meg per second with apache bench over localhost
- * with sendfile and keep-alive.  However, sendfile does not work with
- * large files and may be considered cheating ;-) Also, sendfile is a
- * blocking operation.  Thus, no timeout handling. 
+ * I (Fefe) measured over 320 meg per second with apache bench over localhost
+ * with sendfile and keep-alive.
  */
 #define USE_SENDFILE
 
-#ifndef __linux__
-#undef USE_SENDFILE
-#endif
-
-#ifdef USE_SENDFILE
 #include <sys/sendfile.h>
 #endif
 
+/*
+ * Memory-mapping may result in a performance boost.  thttpd does it,
+ * but for a different reason (to cache frequently-accessed files).
+ * XXX: Some performance testing is in order here.
+ */
+#ifdef _POSIX_MAPPED_FILES
 #define USE_MMAP
-#ifndef _POSIX_MAPPED_FILES
-#undef USE_MMAP
+#endif
+
+/*
+ * TCP_CORK is a Linux extension to work around a TCP problem.
+ * http://www.baus.net/on-tcp_cork has a good description.
+ * XXX:  Since we do our own buffering, TCP_CORK may not be helping
+ * with anything.  This needs testing.
+ */
+ 
+#ifdef TCP_CORK
+static int      corked;
 #endif
 
 enum { UNKNOWN, GET, HEAD, POST } method;
 
-#ifdef TCP_CORK
-static int      corked;
-#endif
 static long     retcode = 404;  /* used for logging code */
 char           *host = "?";     /* Host: header */
 char           *port;           /* also Host: header, :80 part */
@@ -100,8 +104,6 @@ char           *uri;            /* copy of url before demangling */
 char           *content_type;
 char           *content_len;
 char           *auth_type;
-char           *post_miss;
-unsigned long   post_mlen;
 unsigned long   post_len = 0;
 
 #if _FILE_OFFSET_BITS == 64
@@ -123,8 +125,8 @@ char           *remote_ip;
 char           *remote_port;
 char           *remote_ident;
 
-#define BUFFER_OUTSIZE 8192
-char            stdout_buf[BUFFER_OUTSIZE];
+#define BUFFER_SIZE 8192
+char            stdout_buf[BUFFER_SIZE];
 
 static void
 sanitize(char *ua)
@@ -224,22 +226,33 @@ elen(register const char *const *e)
  * 1 found 0 not found, call again -1 EOF or other error 
  */
 static int
-read_header(FILE * f, char *buf, size_t * buflen)
+read_header(FILE *f, char *buf, size_t * buflen)
 {
+    /* 
+     * I'm not crazy about all these static variables.  But the idea,
+     * which seems to work, is that you pass in things like it was
+     * a read call, and then just keep passing that same stuff in over
+     * and over until it returns 0.
+     *
+     * Further down this winds up looking pretty nice.  In here, sort
+     * of gross.
+     */
+
     static char    *lastbuf = NULL;
     static int      found = 0;
     static int      bare = 1;   /* LF here would be bare */
-    int             bufsize = *buflen;
+    static int      bufsize = 0;
 
     if (lastbuf != buf) {
         lastbuf = buf;
         bare = 1;
         found = 0;
+        bufsize = *buflen;
+        *buflen = 0;
     }
-    *buflen = 0;
 
     while (*buflen + bare < bufsize) {
-        int             c = getchar();
+        int             c = fgetc(f);
 
         switch (c) {
             case EOF:
@@ -384,9 +397,11 @@ do_cgi(const char *pathinfo, const char *const *envp)
         char            tmp[PATH_MAX];
 
         i = strrchr(url, '/') - url;
-        strncpy(tmp, url + 1, i);
-        tmp[i] = 0;
-        chdir(tmp);
+        if (i) {
+            strncpy(tmp, url + 1, i);
+            tmp[i] = 0;
+            chdir(tmp);
+        }
     }
 
     {
@@ -425,175 +440,117 @@ cgi_child(int sig)
     signal(SIGCHLD, cgi_child);
 }
 
-/*
- * Convert bare \n to \r\n in header.  Return 0 if header is over. 
- */
-static int
-cgi_send_correct_http(const char *s, unsigned int sl)
-{
-    unsigned int    i;
-    int             newline = 0;
-
-    for (i = 0; i < sl; i += 1) {
-        switch (s[i]) {
-            case '\r':
-                if (s[i + 1] == '\n') {
-                    i += 1;
-            case '\n':
-                    printf("\r\n");
-                    if (newline) {
-                        fwrite(s + i + 1, sl - i - 1, 1, stdout);
-                        return 0;
-                    } else {
-                        newline = 1;
-                    }
-                    break;
-                } else {
-            default:
-                    newline = 0;
-                    putchar(s[i]);
-                }
-                break;
-        }
-    }
-    return 1;
-}
-
 static void
 start_cgi(int nph, const char *pathinfo, const char *const *envp)
 {
+    // XXX: Is it safe to reuse headerbuf from main?
     size_t          size = 0;
-    int             n;
     int             pid;
-    char            ibuf[8192],
-                    obuf[8192];
+    char            cgiheader[BUFFER_SIZE];
+    size_t          cgiheaderlen = BUFFER_SIZE;
     int             fd[2],
                     df[2];
+    FILE           *cin;
 
-    if (pipe(fd) || pipe(df)) {
+    if (pipe(fd) || pipe(df) || !(cin = fdopen(fd[0], "r"))) {
         badrequest(500, "Internal Server Error",
                    "Server Resource problem.");
     }
 
     if ((pid = fork())) {
         if (pid > 0) {
-            struct pollfd   pfd[2];
-            int             nr = 1;
-            int             startup = 1;
+            int             nfds;
+            fd_set          rfds, wfds;
+            int             passthru = nph;
 
+            fcntl(fd[0], F_SETFL, O_NONBLOCK);
             signal(SIGCHLD, cgi_child);
             signal(SIGPIPE, SIG_IGN);   /* NO! no signal! */
 
             close(df[0]);
             close(fd[1]);
 
-            pfd[0].fd = fd[0];
-            pfd[0].events = POLLIN;
-            pfd[0].revents = 0;
-
-            pfd[1].fd = df[1];
-            pfd[1].events = POLLOUT;
-            pfd[1].revents = 0;
-
-            if (post_len)
-                ++nr;           /* have post data */
-            else
+            FD_ZERO(&rfds);
+            FD_ZERO(&wfds);
+            FD_SET(fd[0], &rfds);
+            nfds = fd[0];
+            
+            if (post_len) {
+                /* have post data */
+                FD_SET(df[0], &wfds);
+                if (df[0] > nfds) {
+                    nfds = df[0];
+                }
+            } else if (df[1] >= 0) {
                 close(df[1]);   /* no post data */
+                df[1] = -1;
+            }
 
-            while (poll(pfd, nr, -1) != -1) {
-                /*
-                 * read from cgi 
-                 */
-                if (pfd[0].revents & POLLIN) {
-                    size_t          len;
+            while (select(nfds+1, &rfds, &wfds, NULL, NULL) != -1) {
+                if (FD_ISSET(fd[0], &rfds)) {
+                    if (passthru) {
+                        size_t len;
 
-                    if (startup) {
-                        /*
-                         * XXX: could block :< 
-                         */
-                        // len = read_header(fd[0], ibuf, sizeof ibuf,
-                        // NULL);
-                        len = 0;
+                        /* Re-use this big buffer */
+                        len = fread(cgiheader, 1, sizeof cgiheader, cin);
+                        if (0 == len) {
+                            /* CGI is done */
+                            break;
+                        }
+                        fwrite(cgiheader, 1, len, stdout);
+                        size += len;
                     } else {
-                        len = read(fd[0], ibuf, sizeof ibuf);
-                    }
-                    DUMP_u((unsigned int) len);
+                        int ret;    
 
-                    if (0 == len) {
-                        break;
-                    }
-                    if (len == -1) {
-                        goto cgi_500;
-                    }
-
-                    /*
-                     * startup 
-                     */
-                    if (startup) {
-                        if (nph) {      /* NPH-CGI */
-                            startup = 0;
-                            printf("%.*s", (int) len, ibuf);
-                            /*
-                             * skip HTTP/x.x 
+                        ret = read_header(cin, cgiheader, &cgiheaderlen);
+                        if (0 == ret) {
+                            /* Call read_header again */
+                        } else if (-1 == ret) {
+                            /* EOF or error */
+                            badrequest(500, "CGI Error",
+                                       "CGI output too weird");
+                        } else {
+                            /* Entire header is in memory now */
+                            passthru = 1;
+                            
+                            /* XXX: I think we need to look for Location:
+                             * anywhere, but fnord got away with checking
+                             * only the first header field, so I will too.
                              */
-                            retcode = strtoul(ibuf + 9, NULL, 10);
-                        } else {        /* CGI */
-                            if (memcmp(ibuf, "Location: ", 10) == 0) {
+                            if (memcmp(cgiheader, "Location: ", 10) == 0) {
                                 retcode = 302;
                                 printf
                                     ("HTTP/1.0 302 CGI-Redirect\r\nConnection: close\r\n");
-                                signal(SIGCHLD, SIG_IGN);
-                                cgi_send_correct_http(ibuf, n);
-                                fflush(stdout);
+                                fwrite(cgiheader, 1, cgiheaderlen, stdout);
                                 dolog(0);
                                 exit(0);
-                            } else {
-                                retcode = 200;
-                                printf("HTTP/1.0 200 OK\r\nServer: "
-                                       FNORD
-                                       "\r\nPragma: no-cache\r\nConnection: close\r\n");
-                                signal(SIGCHLD, SIG_IGN);
-                                cgi_send_correct_http(ibuf, len);
-                                startup = 0;
                             }
+
+                            retcode = 200;
+                            printf("HTTP/1.0 200 OK\r\nServer: "
+                                   FNORD
+                                   "\r\nPragma: no-cache\r\nConnection: close\r\n");
+                            signal(SIGCHLD, SIG_IGN);
+                            fwrite(cgiheader, 1, cgiheaderlen, stdout);
                         }
                     }
+                } else if (FD_ISSET(df[1], &wfds)) {
                     /*
-                     * non startup 
+                     * write to cgi the post data 
                      */
-                    else {
-                        fwrite(ibuf, len, 1, stdout);
-                    }
-                    size += len;
-                    if (pfd[0].revents & POLLHUP)
-                        break;
-                }
-                /*
-                 * write to cgi the post data 
-                 */
-                else if (nr > 1 && pfd[1].revents & POLLOUT) {
-                    if (post_miss) {
-                        write(df[1], post_miss, post_mlen);
-                        post_miss = 0;
-                    } else if (post_mlen < post_len) {
-                        n = read(0, obuf, sizeof(obuf));
-                        if (n < 1)
-                            goto cgi_500;
-                        post_mlen += n;
-                        write(df[1], obuf, n);
+                    if (post_len) {
+                        size_t len;
+                        char buf[BUFFER_SIZE];
+                        size_t nmemb = min(BUFFER_SIZE, post_len);
+
+                        len = fread(buf, 1, nmemb, stdin);
+                        if (len < 1) {
+                            break;
+                        }
+                        post_len -= len;
+                        write(df[1], buf, len);
                     } else {
-                        --nr;
                         close(df[1]);
-                    }
-                } else if (pfd[0].revents & POLLHUP)
-                    break;
-                else {
-                  cgi_500:if (startup)
-                        badrequest(500, "Internal Server Error",
-                                   "Looks like the CGI crashed.");
-                    else {
-                        printf("\n\nLooks like the CGI crashed.\n\n");
-                        break;
                     }
                 }
             }
@@ -1204,36 +1161,25 @@ static int
 serve_read_write(int fd)
 {
     char            tmp[4096];
-    struct pollfd   duh;
-    time_t          now,
-                    fini;
     char           *tmp2;
     int             len;
     off_t           todo = rangeend - rangestart;
-    duh.fd = 1;
-    duh.events = POLLOUT;
     if (rangestart)
         lseek(fd, rangestart, SEEK_SET);
+
     while (todo > 0) {
         int             olen;
-        fini = time(&now) + WRITETIMEOUT;
-        len = read(fd, tmp, todo > 4096 ? 4096 : todo);
+
         olen = len;
         tmp2 = tmp;
         while (len > 0) {
             int             written;
-            switch (poll(&duh, 1, (fini - now) * 1000)) {
-                case 0:
-                    if (now < fini)
-                        continue;       /* fall through */
-                case -1:
-                    return 1;   /* timeout or error */
-            }
-            if ((written = write(1, tmp2, len)) < 0)
+
+            if ((written = write(1, tmp2, len)) < 0) {
                 return -1;
+            }
             len -= written;
             tmp2 += written;
-            time(&now);
         }
         todo -= olen;
     }
@@ -1248,9 +1194,7 @@ serve_mmap(int fd)
     unsigned long   mapofs;
     char           *map,
                    *tmp2;
-    struct pollfd   duh;
-    time_t          now,
-                    fini;
+
     mapstart = rangestart & (~(off_t) 0xfff);   /* round down to 4k page */
     maplen = rangeend - mapstart;
     mapofs = rangestart - mapstart;
@@ -1274,27 +1218,21 @@ serve_mmap(int fd)
         } else
             return serve_read_write(fd);
     }
-    duh.fd = 1;
-    duh.events = POLLOUT;
+
     while (rangestart < rangeend) {
         int             len;
-        fini = time(&now) + WRITETIMEOUT;
+        
         len = maplen - mapofs;
         tmp2 = map + mapofs;
         while (len > 0) {
             int             written;
-            switch (poll(&duh, 1, (fini - now) * 1000)) {
-                case 0:
-                    if (now < fini)
-                        continue;       /* fall through */
-                case -1:
-                    return 1;   /* timeout or error */
-            }
-            if ((written = write(1, tmp2, len)) < 0)
+
+            if ((written = write(1, tmp2, len)) < 0) {
+                alarm(0);
                 return -1;
+            }
             len -= written;
             tmp2 += written;
-            time(&now);
         }
         rangestart += maplen - mapofs;
         mapstart += maplen;
@@ -1433,6 +1371,7 @@ main(int argc, char *argv[], const char *const *envp)
     alarm(READTIMEOUT);
 
     headerlen = sizeof headerbuf;
+    // XXX: I need a way to signal that this is a new read with the same buffer.
     switch (read_header(stdin, headerbuf, &headerlen)) {
         case -1:
             return 0;
@@ -1781,7 +1720,13 @@ main(int argc, char *argv[], const char *const *envp)
             }
             fputs("\r\n", stdout);
             if (method == GET || method == POST) {
-                switch (serve_static_data(fd)) {
+                int ret;
+
+                alarm(WRITETIMEOUT);
+                ret = serve_static_data(fd);
+                alarm(0);
+
+                switch (ret) {
                     case 0:
                         break;
                     case -1:

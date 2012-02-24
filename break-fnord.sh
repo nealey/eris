@@ -98,6 +98,13 @@ title "Second MIME-Type"
  ls / > /dev/null    # Delay required to work around test #3
  printf 'GET /a HTTP/1.1\r\nHost: a\r\nConnection: keep-alive\r\n\r\n') | $HTTPD 2>/dev/null | grep -q 'text/plain\|application/octet-stream' && pass || fail
 
+# 6. Should consume POST data; instead tries to read POST data as second request
+title "POST to static HTML"
+(printf 'POST / HTTP/1.1\r\nHost: a\r\nConnection: keep-alive\r\nContent-Type: text/plain\r\nContent-Length: 1\r\n\r\n';
+ ls / > /dev/null
+ printf 'aPOST / HTTP/1.1\r\nHost: a\r\nConnection: keep-alive\r\nContent-Type: text/plain\r\nContent-Length: 1\r\n\r\na') | $HTTPD 2>/dev/null | grep -c '^HTTP/1.' | grep -q 2 && pass || fail
+
+
 cat <<EOD
 -----------------------------------------
 $successes of $tests tests passed ($failures failed).

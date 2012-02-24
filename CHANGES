@@ -1,4 +1,7 @@
 2.0:
+  Replace poll with select, which is more portable and may be
+    slightly faster; however, it's only called for CGI and by
+    that point you've lost quite a bit in terms of speed
   Remove Accept header parsing: it was broken and the result was
     that the Accept header had no effect
   Remove the .gz trick: I never used it, but I would not be averse
