@@ -5,7 +5,7 @@ CFLAGS = -DFNORD='"eris/$(VERSION)"' -Wall -Werror
 all: eris
 
 test: eris
-	cd tests && python3 ./test.py
+	sh ./test.sh
 
 clean:
 	rm -f *.[oa] eris
