@@ -110,6 +110,11 @@ class CGITests(BasicTests):
         self.assertLinesEqual(se, b'10.1.2.3 200 306 default (null) (null) /cgi/set.cgi\n')
         self.assertLinesEqual(so, b'HTTP/1.0 200 OK\r\nServer: eris/2.0\r\nPragma: no-cache\r\nConnection: close\r\nContent-Type: text/plain\r\n\r\nGATEWAY_INTERFACE:CGI/1.1\nSERVER_PROTOCOL:HTTP/1.0\nSERVER_SOFTWARE:eris/2.0\nSERVER_NAME:default\nSERVER_PORT:80\nREQUEST_METHOD:POST\nREQUEST_URI:/cgi/set.cgi\nSCRIPT_NAME:/cgi/set.cgi\nREMOTE_ADDR:10.1.2.3\nREMOTE_PORT:5858\nCONTENT_TYPE:application/x-www-form-urlencoded\nCONTENT_LENGTH:11\nForm data: a=1&b=2&c=3')
 
+class BufferingTests(BasicTests):
+    def testDoubleGet(self):
+        so, se = self.p.communicate(b'GET / HTTP/1.0\r\n\r\nGET / HTTP/1.0\r\n\r\n')
+        self.assertLinesEqual(so, b'')
+
 # XXX: Test posting to static html with keepalive
 # (it probably won't discard content-length octets)
 

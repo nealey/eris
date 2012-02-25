@@ -1,41 +1,36 @@
 #! /bin/sh
 
-## Breaking fnord 1.10
-##
-## Run this as "HTTPD=../eris ./break-fnord.sh" if you'd like to
-## run these tests against a built eris HTTPD.  It will fail the
-## Accept test since eris ignores this.
+: ${HTTPD:=./eris}
+: ${HTTPD_CGI:=./eris -c}
+: ${HTTPD_IDX:=./eris -d}
 
-if [ "$1" = "clean" ]; then
-    rm -rf fnord-1.10
-fi
+H () {
+    echo
+    echo "$@"
+    echo "==================================="
+    echo
+}
 
-# Set HTTPD= to test something else
-case ${HTTPD:=./fnord} in
-    *fnord)
-        : ${HTTPD_IDX:=$HTTPD-idx}
-        : ${HTTPD_CGI:=$HTTPD-cgi}
-        ;;
-    *eris)
-        : ${HTTPD_IDX:=$HTTPD -d}
-        : ${HTTPD_CGI:=$HTTPD -c}
-        ;;
-esac
-
+BR () {
+    echo
+    echo "-----------------------------------"
+    echo
+}
+    
 title() {
-    printf "%-50s: " "$1"
+    printf "* %-50s: " "$1"
     tests=$(expr $tests + 1)
 }
 
 successes=0
 pass () {
-    echo 'pass'
+    echo 'ok'
     successes=$(expr $successes + 1)
 }
 
 failures=0
 fail () {
-    echo 'fail'
+    echo 'FAIL'
     failures=$(expr $failures + 1)
 }
 
@@ -43,18 +38,6 @@ d () {
     tr '\r\n' '#%'
 }
 
-
-if [ ! -f fnord-1.10.tar.bz2 ]; then
-    wget http://www.fefe.de/fnord/fnord-1.10.tar.bz2
-fi
-
-if [ ! -f fnord-1.10/httpd.c ]; then
-    rm -rf fnord-1.10
-    bzcat fnord-1.10.tar.bz2 | tar xf -
-fi
-
-cd fnord-1.10
-make DIET=
 
 if [ ! -d default ]; then
     mkdir default
@@ -71,14 +54,27 @@ EOD
     mkdir empty:80
 fi
 
-cat <<EOD
+echo "HTTPD: $HTTPD  "
+echo "CGI:   $HTTPD_CGI  "
+echo "IDX:   $HTTPD_IDX  "
 
+H "Basic tests"
 
-HTTPD: $HTTPD
-CGI:   $HTTPD_CGI
-IDX:   $HTTPD_IDX
------------------------------------------
-EOD
+title "GET"
+printf 'GET / HTTP/1.0\r\n\r\n' | $HTTPD 2>/dev/null | d | grep -q 'HTTP/1.0 200 OK#%Server: [a-z]*/[0-9.]*#%Content-Type: text/html; charset=UTF-8#%Content-Length: 6#%Last-Modified: ..., .. ... 20.. ..:..:.. GMT#%#%james%' && pass || fail
+
+title "POST"
+printf 'POST / HTTP/1.0\r\nContent-Type: a\r\nContent-Length: 5\r\n\r\njames' | $HTTPD 2>/dev/null | d | grep -q 'HTTP/1.0 200 OK#%Server: [a-z]*/[0-9.]*#%Content-Type: text/html; charset=UTF-8#%Content-Length: 6#%Last-Modified: ..., .. ... 20.. ..:..:.. GMT#%#%james%' && pass || fail
+
+title "Logging /"
+(printf 'GET / HTTP/1.1\r\nHost: host\r\n\r\n' | 
+    PROTO=TCP TCPREMOTEPORT=1234 TCPREMOTEIP=10.0.0.2 $HTTPD >/dev/null) 2>&1 | grep -q '^10.0.0.2 200 6 host (null) (null) /$' && pass || fail
+
+title "Logging /index.html"
+(printf 'GET /index.html HTTP/1.1\r\nHost: host\r\n\r\n' | 
+    PROTO=TCP TCPREMOTEPORT=1234 TCPREMOTEIP=10.0.0.2 $HTTPD >/dev/null) 2>&1 | grep -q '^10.0.0.2 200 6 host (null) (null) /index.html$' && pass || fail
+
+H "fnord bugs"
 
 # 1. Should return directory listing of /; instead segfaults
 title "Directory indexing of /"
@@ -114,10 +110,7 @@ title "HTTP/1.1 default keepalive"
  ls / >/dev/null
  printf 'GET / HTTP/1.1\r\nHost: a\r\n\r\n') | $HTTPD 2>/dev/null | grep -c '^HTTP/' | grep -q 2 && pass || fail
 
-
-cat <<EOD
------------------------------------------
-$successes of $tests tests passed ($failures failed).
-EOD
+BR
+echo "$successes of $tests tests passed ($failures failed)."
 
 exit $failures

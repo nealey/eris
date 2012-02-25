@@ -12,7 +12,7 @@ Significant differences between eris and fnord are:
 * elimination of user switching (you can use tcpserver -[ug])
 * elimination of chroot code (you can use chroot)
 * several bugfixes (sent to the fnord mail list)
-* removal of (non-functional) content-negotiation
+* ignores Accept header (fnord does too)
 
 ----
 

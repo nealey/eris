@@ -73,25 +73,15 @@
 #define USE_MMAP
 #endif
 
-/*
- * TCP_CORK is a Linux extension to work around a TCP problem.
- * http://www.baus.net/on-tcp_cork has a good description.
- * XXX:  Since we do our own buffering, TCP_CORK may not be helping
- * with anything.  This needs testing.
- */
- 
-#ifdef TCP_CORK
-static int      corked;
-#endif
-
 enum { UNKNOWN, GET, HEAD, POST } method;
 
 static long     retcode = 404;  /* used for logging code */
 char           *host = "?";     /* Host: header */
 char           *port;           /* also Host: header, :80 part */
 char           *args;           /* URL behind ? (for CGIs) */
-char           *url;            /* string between GET and HTTP/1.0, *
+char           *path;           /* string between GET and HTTP/1.0, *
                                  * demangled */
+char            rpath[PATH_MAX];
 char           *ua = "?";       /* user-agent */
 char           *refer;          /* Referrer: header */
 char           *accept_enc;     /* Accept-Encoding */
@@ -128,6 +118,25 @@ char           *remote_ident;
 #define BUFFER_SIZE 8192
 char            stdout_buf[BUFFER_SIZE];
 
+/*
+ * TCP_CORK is a Linux extension to work around a TCP problem.
+ * http://www.baus.net/on-tcp_cork has a good description.
+ * XXX:  Since we do our own buffering, TCP_CORK may not be helping
+ * with anything.  This needs testing.
+ */
+void
+cork(int enable)
+{
+#ifdef TCP_CORK
+    static int corked = 0;
+
+    if (enable != corked) {
+        setsockopt(1, IPPROTO_TCP, TCP_CORK, &enable, sizeof(enable));
+        corked = enable;
+    }
+#endif
+}
+
 static void
 sanitize(char *ua)
 {                               /* replace strings with underscores for *
@@ -149,7 +158,7 @@ dolog(off_t len)
 
     fprintf(stderr, "%s %ld %lu %s %s %s %s\n",
             remote_ip ? remote_ip : "0.0.0.0",
-            retcode, (unsigned long) len, host, ua, refer, url);
+            retcode, (unsigned long) len, host, ua, refer, path);
 }
 
 /*
@@ -243,6 +252,11 @@ read_header(FILE *f, char *buf, size_t * buflen)
     static int      bare = 1;   /* LF here would be bare */
     static int      bufsize = 0;
 
+    if (! buf) {
+        lastbuf = NULL;
+        return 0;
+    }
+
     if (lastbuf != buf) {
         lastbuf = buf;
         bare = 1;
@@ -330,7 +344,7 @@ do_cgi(const char *pathinfo, const char *const *envp)
     cgi_env[i++] = env_append("SERVER_PORT", port);
     cgi_env[i++] = env_append("REQUEST_METHOD", method_name[method]);
     cgi_env[i++] = env_append("REQUEST_URI", uri);
-    cgi_env[i++] = env_append("SCRIPT_NAME", url);
+    cgi_env[i++] = env_append("SCRIPT_NAME", path);
     if (remote_ip)
         cgi_env[i++] = env_append("REMOTE_ADDR", remote_ip);
     if (remote_port)
@@ -396,9 +410,9 @@ do_cgi(const char *pathinfo, const char *const *envp)
     {
         char            tmp[PATH_MAX];
 
-        i = strrchr(url, '/') - url;
+        i = strrchr(rpath, '/') - rpath;
         if (i) {
-            strncpy(tmp, url + 1, i);
+            strncpy(tmp, rpath + 1, i);
             tmp[i] = 0;
             chdir(tmp);
         }
@@ -412,7 +426,7 @@ do_cgi(const char *pathinfo, const char *const *envp)
          */
         cgi_arg[0] = tmp;
         tmp[0] = '.';
-        strcpy(tmp + 1, url + i);
+        strcpy(tmp + 1, rpath + i);
 
         /*
          * start cgi 
@@ -570,12 +584,7 @@ start_cgi(int nph, const char *pathinfo, const char *const *envp)
 
         fflush(stdout);
         dolog(size);
-#ifdef TCP_CORK
-        {
-            int             zero = 0;
-            setsockopt(1, IPPROTO_TCP, TCP_CORK, &zero, sizeof(zero));
-        }
-#endif
+        cork(0);
     } else {
         /* Child */
 
@@ -1028,7 +1037,6 @@ handledirlist(const char *origurl)
     unsigned int    nl;
     const char     *nurl = origurl;
 
-    url = (char *) origurl;
     while (nurl[0] == '/')
         ++nurl;
     if (nurl <= origurl)
@@ -1138,7 +1146,8 @@ handleindexcgi(const char *testurl, const char *origurl, char *space)
     if (!(st.st_mode & ul))
         return 0;               /* should be executable */
     *(--test) = '/';
-    url = test;
+
+    strncpy(rpath, test, sizeof rpath);
     return 1;                   /* Wow... now start "index.cgi" */
 }
 
@@ -1273,9 +1282,7 @@ static int
 serve_static_data(int fd)
 {
     off_t           len = rangeend - rangestart;
-#ifdef TCP_CORK
-    corked = 0;
-#endif
+
     if (len < 4096) {           /* for small files, sendfile is actually
                                  * slower */
         char            tmp[4096];
@@ -1291,13 +1298,8 @@ serve_static_data(int fd)
 #ifdef USE_SENDFILE
     {
         off_t           offset = rangestart;
-#ifdef TCP_CORK
-        {
-            int             one = 1;
-            setsockopt(1, IPPROTO_TCP, TCP_CORK, &one, sizeof(one));
-            corked = 1;
-        }
-#endif
+
+        cork(1);
         fflush(stdout);
         {
             off_t           l = rangeend - rangestart;
@@ -1305,11 +1307,11 @@ serve_static_data(int fd)
                 off_t           c;
                 c = (l > (1ul << 31)) ? 1ul << 31 : l;
                 if (sendfile(1, fd, &offset, c) == -1)
-#ifdef USE_MMAP
+#  ifdef USE_MMAP
                     return serve_mmap(fd);
-#else
+#  else
                     return serve_read_write(fd);
-#endif
+#  endif
                 l -= c;
             } while (l);
         }
@@ -1317,18 +1319,14 @@ serve_static_data(int fd)
     }
 #else
     fflush(stdout);
-#ifdef TCP_CORK
-    {
-        int             one = 1;
-        setsockopt(1, IPPROTO_TCP, TCP_CORK, &one, sizeof(one));
-        corked = 1;
-    }
-#endif
-#ifdef USE_MMAP
+
+    /* XXX: Is this really the right place to uncork? */
+    cork(0);
+#  ifdef USE_MMAP
     return serve_mmap(fd);
-#else
+#  else
     return serve_read_write(fd);
-#endif
+#  endif
 #endif
 }
 
@@ -1337,10 +1335,11 @@ int
 main(int argc, char *argv[], const char *const *envp)
 {
     char            headerbuf[MAXHEADERLEN];
-    char           *nurl,
-                   *origurl;
+    char           *url,
+                   *nurl;
     int             doauth = 0;
     int             docgi = 0;
+    int             dokeepalive = 1;
     int             dirlist = 0;
     int             redirect = 0;
     int             portappend = 0;
@@ -1349,7 +1348,7 @@ main(int argc, char *argv[], const char *const *envp)
     {
         int             opt;
 
-        while (-1 != (opt = getopt(argc, argv, "acdrp"))) {
+        while (-1 != (opt = getopt(argc, argv, "acdhkprv"))) {
             switch (opt) {
                 case 'a':
                     doauth = 1;
@@ -1360,15 +1359,29 @@ main(int argc, char *argv[], const char *const *envp)
                 case 'd':
                     dirlist = 1;
                     break;
-                case 'r':
-                    redirect = 1;
+                case 'k':
+                    dokeepalive = 0;
                     break;
                 case 'p':
                     portappend = 1;
                     break;
+                case 'r':
+                    redirect = 1;
+                    break;
+                case 'v':
+                    printf(FNORD "\n");
+                    return 0;
                 default:
-                    fprintf(stderr, "Usage: %s [-c] [-d] [-r] [-p]\n",
+                    fprintf(stderr, "Usage: %s [OPTIONS]\n",
                             argv[0]);
+                    fprintf(stderr, "\n");
+                    fprintf(stderr, "-a         Enable authentication\n");
+                    fprintf(stderr, "-c         Enable CGI\n");
+                    fprintf(stderr, "-d         Enable directory listing\n");
+                    fprintf(stderr, "-k         No default keepalive with HTTP/1.1\n");
+                    fprintf(stderr, "-p         Append port to hostname directory\n");
+                    fprintf(stderr, "-r         Enable symlink redirection\n");
+                    fprintf(stderr, "-v         Print version and exit\n");
                     return 69;
             }
         }
@@ -1381,10 +1394,12 @@ main(int argc, char *argv[], const char *const *envp)
 
   handlenext:
 
+    /* This is cancelled by later calls to alarm */
     alarm(READTIMEOUT);
 
     headerlen = sizeof headerbuf;
-    // XXX: I need a way to signal that this is a new read with the same buffer.
+    /* Clear static variables.  This is such a kludge.  I should fix it. */
+    read_header(NULL, NULL, NULL);
     switch (read_header(stdin, headerbuf, &headerlen)) {
         case -1:
             return 0;
@@ -1394,24 +1409,22 @@ main(int argc, char *argv[], const char *const *envp)
             break;
     }
 
-    alarm(0);
-
     if (headerlen < 10)
         badrequest(400, "Bad Request", "That does not look like HTTP");
 
     if (!memcmp(headerbuf, "GET /", 5)) {
         method = GET;
-        url = headerbuf + 4;
+        path = headerbuf + 4;
     } else if (!memcmp(headerbuf, "POST /", 6)) {
         method = POST;
-        url = headerbuf + 5;
+        path = headerbuf + 5;
     } else if (!memcmp(headerbuf, "HEAD /", 6)) {
         method = HEAD;
-        url = headerbuf + 5;
+        path = headerbuf + 5;
     } else
         badrequest(405, "Method Not Allowed", "Unsupported HTTP method.");
 
-    origurl = url;
+    url = path;
 
     {
         /*
@@ -1431,7 +1444,11 @@ main(int argc, char *argv[], const char *const *envp)
         if (httpversion > 1) {
             badrequest(400, "Bad Request", "HTTP Version not supported");
         }
-        keepalive = 0;
+        if (httpversion > 0) {
+            keepalive = dokeepalive;
+        } else {
+            keepalive = 0;
+        }
 
         /*
          * demangle path in-place 
@@ -1470,10 +1487,7 @@ main(int argc, char *argv[], const char *const *envp)
             *d = 0;
         }
 
-        /*
-         * XXX: check use of uri to see if it needs to be duplicated 
-         */
-        uri = strdup(url);
+        strncpy(rpath, url, sizeof rpath);
     }
 
     {
@@ -1665,12 +1679,7 @@ main(int argc, char *argv[], const char *const *envp)
             if ((method == HEAD))
                 badrequest(400, "Bad Request",
                            "Illegal HTTP method for Gateway call.");
-#ifdef TCP_CORK
-            {
-                int             one = 1;
-                setsockopt(1, IPPROTO_TCP, TCP_CORK, &one, sizeof(one));
-            }
-#endif
+            cork(1);
             for (i = nurl - url; i > -1; --i) {
                 if ((nurl[0] == '/') && (nurl[1] == 'n')
                     && (nurl[2] == 'p') && (nurl[3] == 'h')
@@ -1732,6 +1741,11 @@ main(int argc, char *argv[], const char *const *envp)
                      (unsigned long long) st.st_size);
             }
             fputs("\r\n", stdout);
+
+            for (; post_len; post_len -= 1) {
+                getchar();
+            }
+
             if (method == GET || method == POST) {
                 int ret;
 
@@ -1747,13 +1761,7 @@ main(int argc, char *argv[], const char *const *envp)
                     case 1:
                         return 1;
                 }
-#ifdef TCP_CORK
-                if (corked) {
-                    int             zero = 0;
-                    setsockopt(1, IPPROTO_TCP, TCP_CORK, &zero,
-                               sizeof(zero));
-                }
-#endif
+                cork(0);
                 if (keepalive > 0) {
                     close(fd);
                     fchdir(rootdir);
@@ -1763,8 +1771,11 @@ main(int argc, char *argv[], const char *const *envp)
                 exit(0);
               error500:
                 retcode = 500;
-            } else
+            } else {
                 fflush(stdout);
+            }
+        } else {
+            retcode = 404;
         }
     }
     switch (retcode) {
@@ -1772,11 +1783,11 @@ main(int argc, char *argv[], const char *const *envp)
             {
                 char           *space = alloca(strlen(url) + 2);
 
-                if (handleindexcgi(url, origurl, space))
+                if (handleindexcgi(url, path, space))
                     goto indexcgi;
-                handleredirect(url, origurl);
+                handleredirect(url, path);
                 if (dirlist) {
-                    handledirlist(origurl);
+                    handledirlist(path);
                 }
                 badrequest(404, "Not Found", "No such file or directory.");
             }
@@ -1789,5 +1800,5 @@ main(int argc, char *argv[], const char *const *envp)
         case 500:
             badrequest(500, "Internal Server Error", "");
     }
-    return 1;
+    return 0;
 }
