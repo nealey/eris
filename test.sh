@@ -39,20 +39,24 @@ d () {
 }
 
 
-if [ ! -d default ]; then
-    mkdir default
-    echo james > default/index.html
-    touch default/a
-    cat <<EOD > default/a.cgi
+mkdir -p default
+echo james > default/index.html
+touch default/a
+cat <<'EOD' > default/a.cgi
 #! /bin/sh
 echo 'Content-type: text/plain'
 ls / > /dev/null   # delay a little
 echo
-echo james
-EOD
-    chmod +x default/a.cgi
-    mkdir empty:80
+if [ -n "$CONTENT_LENGTH" ]; then
+    echo "t:$CONTENT_TYPE"
+    echo -n "v:"
+    dd bs=1 count=$CONTENT_LENGTH 2>/dev/null
+else
+    echo ${QUERY_STRING:-james}
 fi
+EOD
+chmod +x default/a.cgi
+mkdir -p default/empty
 
 echo "HTTPD: $HTTPD  "
 echo "CGI:   $HTTPD_CGI  "
@@ -66,6 +70,9 @@ printf 'GET / HTTP/1.0\r\n\r\n' | $HTTPD 2>/dev/null | d | grep -q 'HTTP/1.0 200
 title "POST"
 printf 'POST / HTTP/1.0\r\nContent-Type: a\r\nContent-Length: 5\r\n\r\njames' | $HTTPD 2>/dev/null | d | grep -q 'HTTP/1.0 200 OK#%Server: [a-z]*/[0-9.]*#%Content-Type: text/html; charset=UTF-8#%Content-Length: 6#%Last-Modified: ..., .. ... 20.. ..:..:.. GMT#%#%james%' && pass || fail
 
+title "Bare newline"
+printf 'GET / HTTP/1.0\n\n' | $HTTPD 2>/dev/null | d | grep -q 'HTTP/1.0 200 OK#%Server: [a-z]*/[0-9.]*#%Content-Type: text/html; charset=UTF-8#%Content-Length: 6#%Last-Modified: ..., .. ... 20.. ..:..:.. GMT#%#%james%' && pass || fail
+
 title "Logging /"
 (printf 'GET / HTTP/1.1\r\nHost: host\r\n\r\n' | 
     PROTO=TCP TCPREMOTEPORT=1234 TCPREMOTEIP=10.0.0.2 $HTTPD >/dev/null) 2>&1 | grep -q '^10.0.0.2 200 6 host (null) (null) /$' && pass || fail
@@ -73,6 +80,28 @@ title "Logging /"
 title "Logging /index.html"
 (printf 'GET /index.html HTTP/1.1\r\nHost: host\r\n\r\n' | 
     PROTO=TCP TCPREMOTEPORT=1234 TCPREMOTEIP=10.0.0.2 $HTTPD >/dev/null) 2>&1 | grep -q '^10.0.0.2 200 6 host (null) (null) /index.html$' && pass || fail
+
+
+H "Directory indexing"
+
+title "Basic index"
+printf 'GET /empty/ HTTP/1.0\r\n\r\n' | $HTTPD_IDX 2>/dev/null | d | grep -Fq '<h3>Directory Listing: /empty/</h3>%<pre>%<a href="/">Parent directory</a>%</pre>%' && pass || fail
+
+title "No trailing slash"
+printf 'GET /empty HTTP/1.0\r\n\r\n' | $HTTPD_IDX 2>/dev/null | d | grep -Fq '404 Not Found' && pass || fail
+
+
+H "CGI"
+
+title "Basic CGI"
+printf 'GET /a.cgi HTTP/1.0\r\n\r\n' | $HTTPD_CGI 2>/dev/null | d | grep -q 'HTTP/1.0 200 OK#%Server: .*#%Pragma: no-cache#%Connection: close#%Content-type: text/plain#%#%james%' && pass || fail
+
+title "GET with arguments"
+printf 'GET /a.cgi?foo HTTP/1.0\r\n\r\n' | $HTTPD_CGI 2>/dev/null | d | grep -q 'HTTP/1.0 200 OK#%Server: .*#%Pragma: no-cache#%Connection: close#%Content-type: text/plain#%#%foo%' && pass || fail
+
+title "POST"
+printf 'POST /a.cgi HTTP/1.0\r\nContent-Type: moo\r\nContent-Length: 3\r\n\r\narf' | $HTTPD_CGI 2>/dev/null | d | grep -q 't:moo%v:arf$' && pass || fail
+
 
 H "fnord bugs"
 
@@ -111,6 +140,7 @@ title "HTTP/1.1 default keepalive"
  printf 'GET / HTTP/1.1\r\nHost: a\r\n\r\n') | $HTTPD 2>/dev/null | grep -c '^HTTP/' | grep -q 2 && pass || fail
 
 BR
+
 echo "$successes of $tests tests passed ($failures failed)."
 
 exit $failures
