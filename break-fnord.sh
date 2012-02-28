@@ -114,6 +114,9 @@ title "HTTP/1.1 default keepalive"
  ls / >/dev/null
  printf 'GET / HTTP/1.1\r\nHost: a\r\n\r\n') | $HTTPD 2>/dev/null | grep -c '^HTTP/' | grep -q 2 && pass || fail
 
+# 8. Should parse "Thursday"; instead assumes all day names are 6 characters long
+title "RFC 850 Date"
+printf 'GET / HTTP/1.0\r\nIf-Modified-Since: Thursday, 27-Feb-30 12:12:12 GMT\r\n\r\n' | $HTTPD 2>/dev/null | grep -q '304 Not Changed' && pass || fail
 
 cat <<EOD
 -----------------------------------------

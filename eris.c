@@ -754,30 +754,20 @@ timerfc(const char *s)
         {0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334},
         {0, 31, 60, 91, 121, 152, 182, 213, 244, 274, 305, 335}
     };
-    unsigned        sec,
-                    min,
-                    hour,
-                    day,
-                    mon,
-                    year;
-    char            month[3];
-    int             c;
-    unsigned        n;
-    char            flag;
-    char            state;
-    char            isctime;
     enum { D_START, D_END, D_MON, D_DAY, D_YEAR, D_HOUR, D_MIN, D_SEC };
+    unsigned        sec = 60,
+                    min = 60,
+                    hour = 24,
+                    day = 32,
+                    mon,
+                    year = 1969;
+    char            month[3] = {0, 0, 0};
+    int             c;
+    unsigned        n = 0;
+    char            flag = 1;
+    char            state = D_START;
+    char            isctime = 0;
 
-    sec = 60;
-    min = 60;
-    hour = 24;
-    day = 32;
-    year = 1969;
-    isctime = 0;
-    month[0] = 0;
-    state = D_START;
-    n = 0;
-    flag = 1;
     do {
         c = *s++;
         switch (state) {
@@ -1693,6 +1683,7 @@ main(int argc, char *argv[], const char *const *envp)
         }
     }
 
+    retcode = 0;
     {
         int             fd;
         if ((fd = doit(headerbuf, headerlen, url)) >= 0) {
@@ -1774,7 +1765,7 @@ main(int argc, char *argv[], const char *const *envp)
             } else {
                 fflush(stdout);
             }
-        } else {
+        } else if (! retcode) {
             retcode = 404;
         }
     }
@@ -1796,9 +1787,9 @@ main(int argc, char *argv[], const char *const *envp)
         case 416:
             badrequest(416, "Requested Range Not Satisfiable", "");
         case 304:
-            badrequest(304, "Not Changed", "");
+            badrequest(304, "Not Changed", NULL);
         case 500:
-            badrequest(500, "Internal Server Error", "");
+            badrequest(500, "Internal Server Error", NULL);
     }
     return 0;
 }

@@ -5,32 +5,24 @@
 : ${HTTPD_IDX:=./eris -d}
 
 H () {
-    echo
-    echo "$@"
-    echo "==================================="
-    echo
+    section="$*"
+    printf "\n%-20s: " "$*"
 }
 
-BR () {
-    echo
-    echo "-----------------------------------"
-    echo
-}
-    
 title() {
-    printf "* %-50s: " "$1"
+    thistest="$1"
     tests=$(expr $tests + 1)
 }
 
 successes=0
 pass () {
-    echo 'ok'
+    printf '.'
     successes=$(expr $successes + 1)
 }
 
 failures=0
 fail () {
-    echo 'FAIL'
+    printf '(%s)' "$thistest"
     failures=$(expr $failures + 1)
 }
 
@@ -80,6 +72,24 @@ title "Logging /"
 title "Logging /index.html"
 (printf 'GET /index.html HTTP/1.1\r\nHost: host\r\n\r\n' | 
     PROTO=TCP TCPREMOTEPORT=1234 TCPREMOTEIP=10.0.0.2 $HTTPD >/dev/null) 2>&1 | grep -q '^10.0.0.2 200 6 host (null) (null) /index.html$' && pass || fail
+
+
+H "If-Modified-Since"
+title "Has been modified"
+printf 'GET / HTTP/1.0\r\nIf-Modified-Since: Sun, 27 Feb 1980 12:12:12 GMT\r\n\r\n' | $HTTPD 2>/dev/null | grep -q '200 OK' && pass || fail
+
+title "RFC 822 Date"
+printf 'GET / HTTP/1.0\r\nIf-Modified-Since: Sun, 27 Feb 2030 12:12:12 GMT\r\n\r\n' | $HTTPD 2>/dev/null | grep -q '304 Not Changed' && pass || fail
+
+title "RFC 850 Date"
+printf 'GET / HTTP/1.0\r\nIf-Modified-Since: Sunday, 27-Feb-30 12:12:12 GMT\r\n\r\n' | $HTTPD 2>/dev/null | grep -q '304 Not Changed' && pass || fail
+
+title "RFC 850 Thursday"
+printf 'GET / HTTP/1.0\r\nIf-Modified-Since: Thursday, 27-Feb-30 12:12:12 GMT\r\n\r\n' | $HTTPD 2>/dev/null | grep -q '304 Not Changed' && pass || fail
+
+title "ANSI C Date"
+printf 'GET / HTTP/1.0\r\nIf-Modified-Since: Sun Feb 27 12:12:12 2030\r\n\r\n' | $HTTPD 2>/dev/null | grep -q '304 Not Changed' && pass || fail
+
 
 
 H "Directory indexing"
@@ -139,8 +149,8 @@ title "HTTP/1.1 default keepalive"
  ls / >/dev/null
  printf 'GET / HTTP/1.1\r\nHost: a\r\n\r\n') | $HTTPD 2>/dev/null | grep -c '^HTTP/' | grep -q 2 && pass || fail
 
-BR
-
+echo
+echo
 echo "$successes of $tests tests passed ($failures failed)."
 
 exit $failures
