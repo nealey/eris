@@ -19,8 +19,13 @@
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <dirent.h>
-#include <sys/mman.h>
 #include <limits.h>
+
+#ifdef __linux__
+#   include <sys/sendfile.h>
+#else
+#   define sendfile(a, b, c, d) -1
+#endif
 
 #ifndef min
 #define min(a,b) ((a)<(b)?(a):(b))
@@ -39,81 +44,45 @@
 #define DUMP_p(v) DUMPf("%s = %p", #v, v)
 #define DUMP_buf(v, l) DUMPf("%s = %.*s", #v, (int)(l), v)
 
-/*
- * the following is the time in seconds that fnord should wait for a valid 
- * HTTP request 
- */
+/* Wait this long (seconds) for a valid HTTP request */
 #define READTIMEOUT 2
 
-/*
- * the following is the time in seconds that fnord should wait before
- * aborting a request when trying to write the answer 
- */
+/* Wait this long trying to write out the response */
 #define WRITETIMEOUT 20
 
-#define CGI_TIMEOUT	(5*60)  /* 5 minutes time-out for CGI to complete */
+/* Wait this long for CGI to complete */
+#define CGI_TIMEOUT	(5*60)
 
-#ifdef __linux__
-/*
- * defining USE_SENDFILE enables zero-copy TCP on Linux for static files.
- * I (Fefe) measured over 320 meg per second with apache bench over localhost
- * with sendfile and keep-alive.
- */
-#define USE_SENDFILE
+/* Maximum size of a request header (the whole block) */
+#define MAXHEADERLEN 8192
 
-#include <sys/sendfile.h>
-#endif
+/* Maximum size of a request line */
+#define MAXREQUESTLEN 2048
 
 /*
- * Memory-mapping may result in a performance boost.  thttpd does it,
- * but for a different reason (to cache frequently-accessed files).
- * XXX: Some performance testing is in order here.
+ * Options
  */
-#ifdef _POSIX_MAPPED_FILES
-#define USE_MMAP
-#endif
+int             doauth = 0;
+int             docgi = 0;
+int             dirlist = 0;
+int             redirect = 0;
+int             portappend = 0;
 
-enum { UNKNOWN, GET, HEAD, POST } method;
+/* Variables that persist between requests */
+int             keepalive = 0;
+char           *remote_ip = NULL;
+char           *remote_port = NULL;
+char           *remote_ident = NULL;
 
-static long     retcode = 404;  /* used for logging code */
-char           *host = "?";     /* Host: header */
-char           *port;           /* also Host: header, :80 part */
-char           *args;           /* URL behind ? (for CGIs) */
-char           *path;           /* string between GET and HTTP/1.0, *
-                                 * demangled */
-char            rpath[PATH_MAX];
-char           *ua = "?";       /* user-agent */
-char           *refer;          /* Referrer: header */
-char           *accept_enc;     /* Accept-Encoding */
-int             httpversion;    /* 0 == 1.0, 1 == 1.1 */
-int             keepalive = 0;  /* should we keep the connection alive? */
-int             rootdir;        /* fd of root directory, so we can fchdir
-                                 * * back for keep-alive */
-char           *cookie;         /* Referrer: header */
-char           *uri;            /* copy of url before demangling */
-char           *content_type;
-char           *content_len;
-char           *auth_type;
-unsigned long   post_len = 0;
-
-#if _FILE_OFFSET_BITS == 64
-static unsigned long long rangestart,
-                rangeend;       /* for ranged queries */
-#define strtorange strtoull
-#else
-static unsigned long rangestart,
-                rangeend;       /* for ranged queries */
-#define strtorange strtoul
-#endif
+/* Things that are really super convenient to have globally */
+char *host;
+char *user_agent;
+char *refer;
+char *path;
+int   http_version;
 
 static const char days[] = "SunMonTueWedThuFriSat";
 static const char months[] = "JanFebMarAprMayJunJulAugSepOctNovDec";
-
-#define MAXHEADERLEN 8192
-
-char           *remote_ip;
-char           *remote_port;
-char           *remote_ident;
 
 #define BUFFER_SIZE 8192
 char            stdout_buf[BUFFER_SIZE];
@@ -137,28 +106,31 @@ cork(int enable)
 #endif
 }
 
+
+/** Replace whitespace with underscores for logging */
 static void
-sanitize(char *ua)
-{                               /* replace strings with underscores for *
-                                 * logging */
-    int             j;
-    if (!ua)
+sanitize(char *s)
+{
+    if (!s) {
         return;
-    for (j = 0; ua[j]; ++j)
-        if (isspace(ua[j]))
-            ua[j] = '_';
+    }
+    for (; *s; s += 1) {
+        if (isspace(*s)) {
+            *s = '_';
+        }
+    }
 }
 
+/** Log a request */
 static void
-dolog(off_t len)
+dolog(int code, off_t len)
 {                               /* write a log line to stderr */
     sanitize(host);
-    sanitize(ua);
+    sanitize(user_agent);
     sanitize(refer);
 
-    fprintf(stderr, "%s %ld %lu %s %s %s %s\n",
-            remote_ip ? remote_ip : "0.0.0.0",
-            retcode, (unsigned long) len, host, ua, refer, path);
+    fprintf(stderr, "%s %d %lu %s %s %s %s\n",
+            remote_ip, code, (unsigned long) len, host, user_agent, refer, path);
 }
 
 /*
@@ -167,19 +139,65 @@ dolog(off_t len)
 static void
 badrequest(long code, const char *httpcomment, const char *message)
 {
-    retcode = code;
-    dolog(0);
+    size_t msglen = 0;
+
     printf("HTTP/1.0 %ld %s\r\nConnection: close\r\n", code, httpcomment);
     if (message) {
+        msglen = (strlen(message) * 2) + 15;
+
         printf("Content-Length: %lu\r\nContent-Type: text/html\r\n\r\n",
-               (unsigned long) (strlen(message) * 2) + 15);
+               (unsigned long) msglen);
         printf("<title>%s</title>%s", message, message);
     } else {
         fputs("\r\n", stdout);
     }
     fflush(stdout);
+    dolog(code, msglen);
+
     exit(0);
 }
+
+
+/** Parse a header out of a line.
+ *
+ * This capitalizes the header name, and strips trailing [\r\n]
+ * Returns the length of the line (after stripping)
+ */
+size_t
+extract_header_field(char *buf, char **val, int cgi)
+{
+    size_t len;
+
+    *val = NULL;
+    for (len = 0; buf[len]; len += 1) {
+        if (! *val) {
+            if (buf[len] == ':') {
+                buf[len] = 0;
+                for (*val = &(buf[len+1]); **val == ' '; *val += 1);
+            } else if (cgi) {
+                switch (buf[len]) {
+                    case 'a'...'z':
+                        buf[len] ^= ' ';
+                        break;
+                    case 'A'...'Z':
+                    case '0'...'9':
+                    case '\r':
+                    case '\n':
+                        break;
+                    default:
+                        buf[len] = '_';
+                        break;
+                }
+            }
+        }
+    }
+
+    for (; (buf[len-1] == '\n') || (buf[len-1] == '\r'); len -= 1);
+    buf[len] = 0;
+
+    return len;
+}
+
 
 #define CGIENVLEN 21
 
@@ -228,79 +246,6 @@ elen(register const char *const *e)
     return i;
 }
 
-/*
- * Read header block. Try to read from stdin until \r?\n\r?\n is
- * encountered.  Read no more than *buflen bytes.  Convert bare \n to
- * \r\n. Preserve state across calls, provided buf is the same. Returns:
- * 1 found 0 not found, call again -1 EOF or other error 
- */
-static int
-read_header(FILE *f, char *buf, size_t * buflen)
-{
-    /* 
-     * I'm not crazy about all these static variables.  But the idea,
-     * which seems to work, is that you pass in things like it was
-     * a read call, and then just keep passing that same stuff in over
-     * and over until it returns 0.
-     *
-     * Further down this winds up looking pretty nice.  In here, sort
-     * of gross.
-     */
-
-    static char    *lastbuf = NULL;
-    static int      found = 0;
-    static int      bare = 1;   /* LF here would be bare */
-    static int      bufsize = 0;
-
-    if (! buf) {
-        lastbuf = NULL;
-        return 0;
-    }
-
-    if (lastbuf != buf) {
-        lastbuf = buf;
-        bare = 1;
-        found = 0;
-        bufsize = *buflen;
-        *buflen = 0;
-    }
-
-    while (*buflen + bare < bufsize) {
-        int             c = fgetc(f);
-
-        switch (c) {
-            case EOF:
-                if (errno == EWOULDBLOCK) {
-                    return 0;
-                } else {
-                    return -1;
-                }
-                break;
-            case '\r':
-                bare = 0;
-                break;
-            case '\n':
-                if (bare) {
-                    buf[(*buflen)++] = '\r';
-                    bare = 1;
-                }
-                found += 1;
-                break;
-            default:
-                found = 0;
-                bare = 1;
-                break;
-        }
-        buf[(*buflen)++] = c;
-
-        if (found == 2) {
-            return 1;
-        }
-    }
-
-    return 0;
-}
-
 char           *
 env_append(const char *key, const char *val)
 {
@@ -323,6 +268,8 @@ env_append(const char *key, const char *val)
 
     return ret;
 }
+
+#if 0
 
 static void
 do_cgi(const char *pathinfo, const char *const *envp)
@@ -410,6 +357,7 @@ do_cgi(const char *pathinfo, const char *const *envp)
     {
         char            tmp[PATH_MAX];
 
+        DUMP_s(rpath);
         i = strrchr(rpath, '/') - rpath;
         if (i) {
             strncpy(tmp, rpath + 1, i);
@@ -443,12 +391,14 @@ cgi_child(int sig)
                     pid = waitpid(0, &n, WNOHANG);
     if (pid > 0) {
         if (WIFSIGNALED(n)) {
-            if (WTERMSIG(n) == SIGALRM)
-                badrequest(504, "Gateway Time-out",
-                           "Gateway has hit the Time-out.");
-            else
+            if (WTERMSIG(n) == SIGALRM) {
+                /* XXX: should kill children here */
+                badrequest(504, "Gateway Timeout",
+                           "Gateway has run too long.");
+            } else {
                 badrequest(502, "Bad Gateway",
                            "Gateway broken or unavailable.");
+            }
         }
     }
     signal(SIGCHLD, cgi_child);
@@ -457,7 +407,7 @@ cgi_child(int sig)
 static void
 start_cgi(int nph, const char *pathinfo, const char *const *envp)
 {
-    // XXX: Is it safe to reuse headerbuf from main?
+    // XXX: would it be safe to reuse headerbuf from main?
     size_t          size = 0;
     int             pid;
     char            cgiheader[BUFFER_SIZE];
@@ -601,6 +551,7 @@ start_cgi(int nph, const char *pathinfo, const char *const *envp)
     }
     exit(0);
 }
+#endif
 
 static int
 fromhex(int c)
@@ -754,20 +705,30 @@ timerfc(const char *s)
         {0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334},
         {0, 31, 60, 91, 121, 152, 182, 213, 244, 274, 305, 335}
     };
-    enum { D_START, D_END, D_MON, D_DAY, D_YEAR, D_HOUR, D_MIN, D_SEC };
-    unsigned        sec = 60,
-                    min = 60,
-                    hour = 24,
-                    day = 32,
+    unsigned        sec,
+                    min,
+                    hour,
+                    day,
                     mon,
-                    year = 1969;
-    char            month[3] = {0, 0, 0};
+                    year;
+    char            month[3];
     int             c;
-    unsigned        n = 0;
-    char            flag = 1;
-    char            state = D_START;
-    char            isctime = 0;
+    unsigned        n;
+    char            flag;
+    char            state;
+    char            isctime;
+    enum { D_START, D_END, D_MON, D_DAY, D_YEAR, D_HOUR, D_MIN, D_SEC };
 
+    sec = 60;
+    min = 60;
+    hour = 24;
+    day = 32;
+    year = 1969;
+    isctime = 0;
+    month[0] = 0;
+    state = D_START;
+    n = 0;
+    flag = 1;
     do {
         c = *s++;
         switch (state) {
@@ -885,8 +846,7 @@ timerfc(const char *s)
                                                      1969L) >> 2))));
 }
 
-static struct stat st;
-
+#if 0
 /*
  * try to return a file 
  */
@@ -1141,14 +1101,91 @@ handleindexcgi(const char *testurl, const char *origurl, char *space)
     return 1;                   /* Wow... now start "index.cgi" */
 }
 
-static void
-get_ucspi_env(void)
+static int
+findcgi(const char *c)
+{
+    return (c[0] == '.' && c[1] == 'c' &&
+            c[2] == 'g' && c[3] == 'i' && (c[4] == '/' || c[4] == 0));
+}
+
+
+void
+fake_sendfile(int out_fd, int in_fd, off_t *offset, size_t count)
+{
+    char buf[BUFFER_SIZE];
+    ssize_t l, m;
+
+    /* is mmap quicker?  does it matter? */
+    if (rangestart && (*offset == rangestart)) {
+        if (-1 == lseek(in_fd, *offset, SEEK_SET)) {
+            /* We're screwed.  The most helpful thing we can do now is die. */
+            fprintf(stderr, "Unable to seek.  Dying.\n");
+            exit(0);
+        }
+    }
+    l = read(in_fd, buf, min(count, sizeof buf));
+    if (-1 == l) {
+        /* Also screwed. */
+        fprintf(stderr, "Unable to read an open file.  Dying.\n");
+        exit(0);
+    }
+    *offset += l;
+
+    while (l) {
+        m = write(out_fd, buf, l);
+        if (-1 == m) {
+            /* ALSO screwed. */
+            fprintf(stderr, "Unable to write to client.  Dying.\n");
+            exit(0);
+        }
+        l -= m;
+    }
+}
+
+/*
+ * write from offset "rangestart" to offset "rangeend" to stdout
+ */
+static int
+serve_static_data(int fd)
+{
+    off_t           len = rangeend - rangestart;
+    off_t           offset = rangestart;
+
+    /* XXX: A comment here asserted that files with length < 4096 were
+     * faster to send with a read and write.  Test this. */
+
+    cork(1);
+    fflush(stdout);
+
+    while (len) {
+        size_t count = min(len, SIZE_MAX);
+        ssize_t sent;
+
+        sent = sendfile(1, fd, &offset, count);
+        if (sent == -1) {
+            fake_sendfile(1, fd, &offset, count);
+        }
+        len -= count;
+    }
+    cork(0);
+
+    return 0;
+}
+
+#endif
+
+void
+get_ucspi_env()
 {
     char           *ucspi = getenv("PROTO");
+
     if (ucspi) {
         int             protolen = strlen(ucspi);
-        char           *buf = alloca(protolen + 20);
+        char            buf[80];
 
+        if (protolen > 20) {
+            return;
+        }
         strcpy(buf, ucspi);
 
         strcpy(buf + protolen, "REMOTEIP");
@@ -1162,634 +1199,197 @@ get_ucspi_env(void)
     }
 }
 
-static int
-findcgi(const char *c)
+void
+parse_options(int argc, char *argv[])
 {
-    return (c[0] == '.' && c[1] == 'c' &&
-            c[2] == 'g' && c[3] == 'i' && (c[4] == '/' || c[4] == 0));
-}
+    int             opt;
 
-static int
-serve_read_write(int fd)
-{
-    char            tmp[4096];
-    char           *tmp2;
-    int             len;
-    off_t           todo = rangeend - rangestart;
-    if (rangestart)
-        lseek(fd, rangestart, SEEK_SET);
-
-    while (todo > 0) {
-        int             olen;
-
-        olen = len;
-        tmp2 = tmp;
-        while (len > 0) {
-            int             written;
-
-            if ((written = write(1, tmp2, len)) < 0) {
-                return -1;
-            }
-            len -= written;
-            tmp2 += written;
-        }
-        todo -= olen;
-    }
-    return 0;
-}
-
-static int
-serve_mmap(int fd)
-{
-    off_t           mapstart,
-                    maplen;
-    unsigned long   mapofs;
-    char           *map,
-                   *tmp2;
-
-    mapstart = rangestart & (~(off_t) 0xfff);   /* round down to 4k page */
-    maplen = rangeend - mapstart;
-    mapofs = rangestart - mapstart;
-    if (maplen > 64 * 1024 * 1024)
-        maplen = 64 * 1024 * 1024;
-    map = mmap(0, maplen, PROT_READ, MAP_PRIVATE, fd, mapstart);
-    if (map == MAP_FAILED) {
-        if (errno == EINVAL && mapstart) {
-            /*
-             * try rounded to 64k pages 
-             */
-            mapstart = rangestart & 0xffff;
-            maplen = rangeend - mapstart;
-            mapofs = rangestart - mapstart;
-            map = mmap(0, maplen, PROT_READ, MAP_PRIVATE, fd, mapstart);
-            if (map == MAP_FAILED)
-                /*
-                 * didn't work, use read/write instead. 
-                 */
-                return serve_read_write(fd);
-        } else
-            return serve_read_write(fd);
-    }
-
-    while (rangestart < rangeend) {
-        int             len;
-        
-        len = maplen - mapofs;
-        tmp2 = map + mapofs;
-        while (len > 0) {
-            int             written;
-
-            if ((written = write(1, tmp2, len)) < 0) {
-                alarm(0);
-                return -1;
-            }
-            len -= written;
-            tmp2 += written;
-        }
-        rangestart += maplen - mapofs;
-        mapstart += maplen;
-        munmap(map, maplen);
-        mapofs = 0;
-        maplen = rangeend - mapstart;
-        if (maplen) {
-            if (maplen > 64 * 1024 * 1024)
-                maplen = 64 * 1024 * 1024;
-            map = mmap(0, maplen, PROT_READ, MAP_SHARED, fd, mapstart);
-            if (map == MAP_FAILED)
-                /*
-                 * can't happen, really 
-                 */
-                return serve_read_write(fd);
+    while (-1 != (opt = getopt(argc, argv, "acdhkprv"))) {
+        switch (opt) {
+            case 'a':
+                doauth = 1;
+                break;
+            case 'c':
+                docgi = 1;
+                break;
+            case 'd':
+                dirlist = 1;
+                break;
+            case 'p':
+                portappend = 1;
+                break;
+            case 'r':
+                redirect = 1;
+                break;
+            case 'v':
+                printf(FNORD "\n");
+                exit(0);
+            default:
+                fprintf(stderr, "Usage: %s [OPTIONS]\n",
+                        argv[0]);
+                fprintf(stderr, "\n");
+                fprintf(stderr, "-a         Enable authentication\n");
+                fprintf(stderr, "-c         Enable CGI\n");
+                fprintf(stderr, "-d         Enable directory listing\n");
+                fprintf(stderr, "-p         Append port to hostname directory\n");
+                fprintf(stderr, "-r         Enable symlink redirection\n");
+                fprintf(stderr, "-v         Print version and exit\n");
+                exit(69);
         }
     }
-    return 0;
 }
 
-/*
- * write from offset "rangestart" to offset "rangeend" to fd #1 
- */
-static int
-serve_static_data(int fd)
-{
-    off_t           len = rangeend - rangestart;
+enum { GET, POST, HEAD };
 
-    if (len < 4096) {           /* for small files, sendfile is actually
-                                 * slower */
-        char            tmp[4096];
-        if (rangestart)
-            lseek(fd, rangestart, SEEK_SET);
-        read(fd, tmp, len);     /* if read fails, we can't back down now.
-                                 * We already committed on the
-                                 * content-length */
-        fwrite(tmp, len, 1, stdout);
-        fflush(stdout);
-        return 0;
+void
+handle_request()
+{
+    char request[MAXREQUESTLEN];
+    char fspath[MAXREQUESTLEN];
+    char buf[MAXHEADERLEN];
+    char *p;
+    char *query_string = NULL;
+    int method;
+
+    host = NULL;
+    user_agent = NULL;
+    refer = NULL;
+    path = NULL;
+
+    alarm(READTIMEOUT);
+
+    /* Read request line first */
+    request[0] = 0;
+    fgets(request, sizeof request, stdin);
+    if (!strncmp(request, "GET /", 5)) {
+        method = GET;
+        p = request + 5;
+    } else if (!strncmp(request, "POST /", 6)) {
+        method = POST;
+        p = request + 6;
+    } else if (!strncmp(request, "HEAD /", 6)) {
+        method = HEAD;
+        p = request + 6;
+    } else {
+        /* This also handles the case where fgets does nothing */
+        badrequest(405, "Method Not Allowed", "Unsupported HTTP method.");
     }
-#ifdef USE_SENDFILE
+
+    /* Interpret path into fspath */
+    path = p - 1;
     {
-        off_t           offset = rangestart;
+        char *fsp = fspath;
 
-        cork(1);
-        fflush(stdout);
-        {
-            off_t           l = rangeend - rangestart;
-            do {
-                off_t           c;
-                c = (l > (1ul << 31)) ? 1ul << 31 : l;
-                if (sendfile(1, fd, &offset, c) == -1)
-#  ifdef USE_MMAP
-                    return serve_mmap(fd);
-#  else
-                    return serve_read_write(fd);
-#  endif
-                l -= c;
-            } while (l);
+        *(fsp++) = '/';
+        for (; *p != ' '; p += 1) {
+            if (! query_string) {
+                char c = *p;
+
+                switch (c) {
+                    case 0:
+                        badrequest(413, "Request Entity Too Large", "The HTTP request was too long");
+                    case '\n':
+                        badrequest(505, "Version Not Supported", "HTTP/0.9 not supported");
+                    case '?':
+                        query_string = p + 1;
+                        break;
+                    case '.':
+                        if (p[-1] == '/') {
+                            c = ':';
+                        }
+                        break;
+                    case '%':
+                        if (p[1] && p[2]) {
+                            int a = fromhex(p[1]);
+                            int b = fromhex(p[2]);
+
+                            if ((a >= 0) && (b >= 0)) {
+                                c = (a << 4) | b;
+                                p += 2;
+                            }
+                        }
+                        break;
+                }
+
+                *(fsp++) = c;
+            }
         }
-        return 0;
+        *fsp = 0;
+        DUMP_s(fspath);
     }
-#else
-    fflush(stdout);
+    *(p++) = 0;         /* NULL-terminate path */
+    DUMP_s(path);
 
-    /* XXX: Is this really the right place to uncork? */
-    cork(0);
-#  ifdef USE_MMAP
-    return serve_mmap(fd);
-#  else
-    return serve_read_write(fd);
-#  endif
-#endif
+    http_version = -1;
+    if (! strncmp(p, "HTTP/1.", 7) && (p[8] || (p[8] == '\r') || (p[8] == '\n'))) {
+        http_version = p[7] - '0';
+    }
+    if (! ((http_version == 0) || (http_version == 1))) {
+        badrequest(505, "Version Not Supported", "HTTP version not supported");
+    }
+    DUMP_d(http_version);
+
+    /* Read header fields */
+    {
+        size_t offset = 0;
+
+        while (1) {
+            char   *cgi_name = buf + offset;
+            char   *p;
+            int     plen = (sizeof buf) - offset;
+            char   *name, *val;
+            size_t  len;
+
+            if (plen < 40) {
+                badrequest(431, "Request Header Too Large", "The HTTP header block was too large");
+            }
+            strcpy(cgi_name, "HTTP_");
+            plen -= 5;
+            p = cgi_name + 5;
+
+            if (NULL == fgets(p, plen, stdin)) {
+                badrequest(500, "OS Error", "OS error reading headers");
+            }
+
+            len = extract_header_field(p, &val, 1);
+            if (! len) {
+                /* blank line */
+                break;
+            }
+
+            name = p;
+            DUMP_u(len);
+            DUMP_s(cgi_name);
+            DUMP_s(name);
+            DUMP_s(val);
+            if (! val) {
+                badrequest(400, "Invalid header", "Unable to parse header block");
+            }
+
+            if (docgi) {
+                /* Set this up for a later call to exec */
+                setenv(cgi_name, val, 1);
+            }
+
+        }
+    }
+
+    return;
 }
-
 
 int
 main(int argc, char *argv[], const char *const *envp)
 {
-    char            headerbuf[MAXHEADERLEN];
-    char           *url,
-                   *nurl;
-    int             doauth = 0;
-    int             docgi = 0;
-    int             dokeepalive = 1;
-    int             dirlist = 0;
-    int             redirect = 0;
-    int             portappend = 0;
-    size_t          headerlen;
-
-    {
-        int             opt;
-
-        while (-1 != (opt = getopt(argc, argv, "acdhkprv"))) {
-            switch (opt) {
-                case 'a':
-                    doauth = 1;
-                    break;
-                case 'c':
-                    docgi = 1;
-                    break;
-                case 'd':
-                    dirlist = 1;
-                    break;
-                case 'k':
-                    dokeepalive = 0;
-                    break;
-                case 'p':
-                    portappend = 1;
-                    break;
-                case 'r':
-                    redirect = 1;
-                    break;
-                case 'v':
-                    printf(FNORD "\n");
-                    return 0;
-                default:
-                    fprintf(stderr, "Usage: %s [OPTIONS]\n",
-                            argv[0]);
-                    fprintf(stderr, "\n");
-                    fprintf(stderr, "-a         Enable authentication\n");
-                    fprintf(stderr, "-c         Enable CGI\n");
-                    fprintf(stderr, "-d         Enable directory listing\n");
-                    fprintf(stderr, "-k         No default keepalive with HTTP/1.1\n");
-                    fprintf(stderr, "-p         Append port to hostname directory\n");
-                    fprintf(stderr, "-r         Enable symlink redirection\n");
-                    fprintf(stderr, "-v         Print version and exit\n");
-                    return 69;
-            }
-        }
-    }
+    parse_options(argc, argv);
 
     setbuffer(stdout, stdout_buf, sizeof stdout_buf);
 
     signal(SIGPIPE, SIG_IGN);
     get_ucspi_env();
 
-  handlenext:
+    do {
+        handle_request();
+    } while (keepalive);
 
-    /* This is cancelled by later calls to alarm */
-    alarm(READTIMEOUT);
-
-    headerlen = sizeof headerbuf;
-    /* Clear static variables.  This is such a kludge.  I should fix it. */
-    read_header(NULL, NULL, NULL);
-    switch (read_header(stdin, headerbuf, &headerlen)) {
-        case -1:
-            return 0;
-            break;
-        case 0:
-            badrequest(400, "Bad Request", "Header too long");
-            break;
-    }
-
-    if (headerlen < 10)
-        badrequest(400, "Bad Request", "That does not look like HTTP");
-
-    if (!memcmp(headerbuf, "GET /", 5)) {
-        method = GET;
-        path = headerbuf + 4;
-    } else if (!memcmp(headerbuf, "POST /", 6)) {
-        method = POST;
-        path = headerbuf + 5;
-    } else if (!memcmp(headerbuf, "HEAD /", 6)) {
-        method = HEAD;
-        path = headerbuf + 5;
-    } else
-        badrequest(405, "Method Not Allowed", "Unsupported HTTP method.");
-
-    url = path;
-
-    {
-        /*
-         * If we got here we are *guaranteed* (by read_header) to have at
-         * least one \r 
-         */
-        char           *nl = memchr(headerbuf, '\r', headerlen);
-        char           *space = memchr(url, ' ', nl - url);
-
-        if (!space) {
-            badrequest(400, "Bad Request", "HTTP/0.9 not supported");
-        }
-        if (memcmp(space + 1, "HTTP/1.", 7))
-            badrequest(400, "Bad Request", "Only HTTP/1.x supported");
-        *space = 0;
-        httpversion = space[8] - '0';
-        if (httpversion > 1) {
-            badrequest(400, "Bad Request", "HTTP Version not supported");
-        }
-        if (httpversion > 0) {
-            keepalive = dokeepalive;
-        } else {
-            keepalive = 0;
-        }
-
-        /*
-         * demangle path in-place 
-         */
-        {
-            register char  *tmp,
-                           *d;
-            for (tmp = d = url; *tmp; ++tmp) {
-                if (*tmp == '?') {
-                    args = tmp + 1;
-                    break;
-                }
-                if (*tmp == ' ')
-                    break;
-                if (*tmp == '%') {
-                    int             a,
-                                    b;
-                    a = fromhex(tmp[1]);
-                    b = fromhex(tmp[2]);
-                    if (a >= 0 && b >= 0) {
-                        *d = (a << 4) + b;
-                        tmp += 2;
-                    } else
-                        *d = *tmp;
-                } else
-                    *d = *tmp;
-                if (d > url + 1 && *d == '/' && d[-1] == ':'
-                    && d[-2] == '/')
-                    d -= 2;
-                if (d > url && *d == '/' && d[-1] == '/')
-                    --d;
-                if (d > url && *d == '.' && d[-1] == '/')
-                    *d = ':';
-                ++d;
-            }
-            *d = 0;
-        }
-
-        strncpy(rpath, url, sizeof rpath);
-    }
-
-    {
-        char           *tmp;
-        ua = header(headerbuf, headerlen, "User-Agent");
-        refer = header(headerbuf, headerlen, "Referer");
-        accept_enc = header(headerbuf, headerlen, "Accept-Encoding");
-        if ((tmp = header(headerbuf, headerlen, "Connection"))) {       /* see 
-                                                                         * if 
-                                                                         * it's
-                                                                         * *
-                                                                         * "keep-alive"
-                                                                         * * or "close" */
-            if (!strcasecmp(tmp, "keep-alive"))
-                keepalive = 1;
-            else if (!strcasecmp(tmp, "close"))
-                keepalive = -1;
-        }
-        cookie = header(headerbuf, headerlen, "Cookie");
-        auth_type = header(headerbuf, headerlen, "Authorization");
-        if (method == POST) {
-            content_type = header(headerbuf, headerlen, "Content-Type");
-            content_len = header(headerbuf, headerlen, "Content-Length");
-
-            if ((!content_type) || (!content_len)) {
-                badrequest(411, "Length Required",
-                           "POST missing Content-Type or Content-Length");
-            }
-
-            post_len = strtoul(content_len, NULL, 10);
-        }
-    }
-
-    port = getenv("TCPLOCALPORT");
-    if (!port)
-        port = "80";
-    {
-        char           *Buf;
-        int             i;
-        host = header(headerbuf, headerlen, "Host");
-        if (!host)
-            i = 100;
-        else
-            i = strlen(host) + 7;
-        Buf = alloca(i);
-        if (!host) {
-            char           *ip = getenv("TCPLOCALIP");
-            if (!ip)
-                ip = "127.0.0.1";
-            if (strlen(ip) + strlen(port) > 90)
-                exit(101);
-            if (portappend) {
-                sprintf(Buf, "%s:%s", ip, port);
-            } else {
-                strcpy(Buf, ip);
-            }
-            host = Buf;
-        } else {
-            char           *colon = strchr(host, ':');
-
-            if (portappend && !colon) {
-                sprintf(Buf, "%s:%s", host, port);
-                host = Buf;
-            } else if (!portappend && colon) {
-                *colon = '\0';
-            }
-        }
-        for (i = strlen(host); i >= 0; --i)
-            if ((host[i] = tolower(host[i])) == '/')
-              hostb0rken:
-                badrequest(400, "Bad Request", "Invalid host header");
-        if (host[0] == '.')
-            goto hostb0rken;
-        if (keepalive > 0) {
-            if ((rootdir = open(".", O_RDONLY)) < 0)
-                keepalive = -1;
-        }
-        if (chdir(host)) {
-            if (redirect) {
-                char            symlink[1024];
-                int             linklen;
-                if ((linklen =
-                     readlink(host, symlink, sizeof symlink)) > 0) {
-                    /*
-                     * it is a broken symlink.  Do a redirection 
-                     */
-                    redirectboilerplate();
-                    if (symlink[0] == '=') {
-                        fwrite(symlink + 1, linklen - 1, 1, stdout);
-                    } else {
-                        fwrite(symlink, linklen, 1, stdout);
-                        while (url[0] == '/')
-                            ++url;
-                        fputs(url, stdout);
-                    }
-                    retcode = 301;
-                    fputs("\r\n\r\n", stdout);
-                    dolog(0);
-                    fflush(stdout);
-                    exit(0);
-                }
-            }
-            if (chdir("default") && argc < 2) {
-                badrequest(404, "Not Found",
-                           "This host is not served here.");
-            }
-        }
-    }
-
-    if (doauth) {
-        char           *auth_script = ".http-auth";
-        struct stat     st;
-
-        if (!stat(auth_script, &st)) {
-            pid_t           child;
-            const char     *authorization;
-
-            authorization = header(headerbuf, headerlen, "Authorization");
-            child = fork();
-            if (child < 0) {
-                badrequest(500, "Internal Server Error",
-                           "Server Resource problem.");
-            } else if (child == 0) {
-                dup2(2, 1);
-                setenv("HTTP_AUTHORIZATION", authorization, 1);
-                execl(auth_script, auth_script, host, url, NULL);
-                exit(1);
-            } else {
-                int             status;
-                pid_t           childr;
-
-                while ((childr = waitpid(child, &status, 0)) < 0
-                       && errno == EINTR);
-                if (childr != child)
-                    badrequest(500, "Internal Server Error",
-                               "Server system problem.");
-                if (!WIFEXITED(status) || WEXITSTATUS(status)) {
-                    retcode = 401;
-                    dolog(0);
-                    fputs("HTTP/1.0 401 Authorization Required\r\n"
-                          "WWW-Authenticate: Basic realm=\"", stdout);
-                    fputs(host, stdout);
-                    fputs("\"\r\nConnection: close\r\n\r\n"
-                          "Access to this site is restricted.\r\n"
-                          "Please provide credentials.\r\n", stdout);
-                    fflush(stdout);
-                    exit(0);
-                }
-            }
-        }
-    }
-
-    nurl = url + strlen(url);
-    if (nurl > url)
-        --nurl;
-    if (*nurl == '/') {
-        int             i;
-        nurl = alloca(strlen(url) + 12);
-        i = sprintf(nurl, "%sindex.html", url);
-        url = nurl;
-        nurl = url + i;
-    }
-    nurl -= 3;
-
-    if (docgi) {
-        char           *tmp,
-                       *pathinfo;
-
-        pathinfo = 0;
-        for (tmp = url; tmp < nurl; ++tmp) {
-            if (findcgi(tmp)) {
-                nurl = tmp;
-                if (tmp[4] == '/')
-                    pathinfo = tmp + 4;
-                break;
-            }
-        }
-        if (pathinfo) {
-            int             len = strlen(pathinfo) + 1;
-
-            tmp = alloca(len);
-            memcpy(tmp, pathinfo, len);
-            *pathinfo = 0;
-            pathinfo = tmp;
-        }
-        if (findcgi(nurl)) {
-            int             i;
-
-            if ((method == HEAD))
-                badrequest(400, "Bad Request",
-                           "Illegal HTTP method for Gateway call.");
-            cork(1);
-            for (i = nurl - url; i > -1; --i) {
-                if ((nurl[0] == '/') && (nurl[1] == 'n')
-                    && (nurl[2] == 'p') && (nurl[3] == 'h')
-                    && (nurl[4] == '-'))
-                    start_cgi(1, pathinfo, envp);       /* start a NPH-CGI 
-                                                         */
-                --nurl;
-            }
-          indexcgi:
-            start_cgi(0, pathinfo, envp);       /* start a CGI */
-        }
-    }
-
-    retcode = 0;
-    {
-        int             fd;
-        if ((fd = doit(headerbuf, headerlen, url)) >= 0) {
-            /*
-             * file was there
-             */
-            retcode = 200;
-            dolog(st.st_size);
-            if (rangestart || rangeend != st.st_size)
-                fputs("HTTP/1.0 206 Partial Content\r\n", stdout);
-            else
-                fputs("HTTP/1.0 200 OK\r\n", stdout);
-            printf("Server: %s\r\n", FNORD);
-            printf("Content-Type: %s\r\n", getmimetype(url));
-            switch (keepalive) {
-                case -1:
-                    fputs("Connection: close\r\n", stdout);
-                    break;
-                case 1:
-                    fputs("Connection: Keep-Alive\r\n", stdout);
-                    break;
-            }
-            printf("Content-Length: %llu\r\n",
-                   (unsigned long long) (rangeend - rangestart));
-            {
-                /*
-                 * glibc's gmtime parses tzinfo, resulting in 9
-                 * additional syscalls.  uclibc doesn't do this.
-                 * I presume dietlibc doesn't either.
-                 */
-                struct tm      *x = gmtime(&st.st_mtime);
-                /*
-                 * "Sun, 06 Nov 1994 08:49:37 GMT" 
-                 */
-                printf
-                    ("Last-Modified: %.3s, %02d %.3s %d %02d:%02d:%02d GMT\r\n",
-                     days + (3 * x->tm_wday), x->tm_mday,
-                     months + (3 * x->tm_mon), x->tm_year + 1900,
-                     x->tm_hour, x->tm_min, x->tm_sec);
-            }
-            if (rangestart || rangeend != st.st_size) {
-                printf
-                    ("Accept-Ranges: bytes\r\nContent-Range: bytes %llu-%llu/%llu\r\n",
-                     (unsigned long long) rangestart,
-                     (unsigned long long) rangeend - 1,
-                     (unsigned long long) st.st_size);
-            }
-            fputs("\r\n", stdout);
-
-            for (; post_len; post_len -= 1) {
-                getchar();
-            }
-
-            if (method == GET || method == POST) {
-                int ret;
-
-                alarm(WRITETIMEOUT);
-                ret = serve_static_data(fd);
-                alarm(0);
-
-                switch (ret) {
-                    case 0:
-                        break;
-                    case -1:
-                        goto error500;
-                    case 1:
-                        return 1;
-                }
-                cork(0);
-                if (keepalive > 0) {
-                    close(fd);
-                    fchdir(rootdir);
-                    close(rootdir);
-                    goto handlenext;
-                }
-                exit(0);
-              error500:
-                retcode = 500;
-            } else {
-                fflush(stdout);
-            }
-        } else if (! retcode) {
-            retcode = 404;
-        }
-    }
-    switch (retcode) {
-        case 404:
-            {
-                char           *space = alloca(strlen(url) + 2);
-
-                if (handleindexcgi(url, path, space))
-                    goto indexcgi;
-                handleredirect(url, path);
-                if (dirlist) {
-                    handledirlist(path);
-                }
-                badrequest(404, "Not Found", "No such file or directory.");
-            }
-        case 406:
-            badrequest(406, "Not Acceptable", "Nothing acceptable found.");
-        case 416:
-            badrequest(416, "Requested Range Not Satisfiable", "");
-        case 304:
-            badrequest(304, "Not Changed", NULL);
-        case 500:
-            badrequest(500, "Internal Server Error", NULL);
-    }
     return 0;
 }

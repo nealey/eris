@@ -62,6 +62,9 @@ printf 'GET / HTTP/1.0\r\n\r\n' | $HTTPD 2>/dev/null | d | grep -q 'HTTP/1.0 200
 title "POST"
 printf 'POST / HTTP/1.0\r\nContent-Type: a\r\nContent-Length: 5\r\n\r\njames' | $HTTPD 2>/dev/null | d | grep -q 'HTTP/1.0 200 OK#%Server: [a-z]*/[0-9.]*#%Content-Type: text/html; charset=UTF-8#%Content-Length: 6#%Last-Modified: ..., .. ... 20.. ..:..:.. GMT#%#%james%' && pass || fail
 
+title "HTTP/1.12"
+printf 'GET / HTTP/1.12\r\n\r\n' | $HTTPD 2>/dev/null | grep -q 'HTTP/1.0 505' && pass || fail
+
 title "Bare newline"
 printf 'GET / HTTP/1.0\n\n' | $HTTPD 2>/dev/null | d | grep -q 'HTTP/1.0 200 OK#%Server: [a-z]*/[0-9.]*#%Content-Type: text/html; charset=UTF-8#%Content-Length: 6#%Last-Modified: ..., .. ... 20.. ..:..:.. GMT#%#%james%' && pass || fail
 
@@ -111,6 +114,9 @@ printf 'GET /a.cgi?foo HTTP/1.0\r\n\r\n' | $HTTPD_CGI 2>/dev/null | d | grep -q 
 
 title "POST"
 printf 'POST /a.cgi HTTP/1.0\r\nContent-Type: moo\r\nContent-Length: 3\r\n\r\narf' | $HTTPD_CGI 2>/dev/null | d | grep -q 't:moo%v:arf$' && pass || fail
+
+title "PATH_INFO"
+printf 'GET /a.cgi/merf HTTP/1.0\r\n\r\n' | $HTTPD_CGI 2>/dev/null | grep -q '200' && pass || fail
 
 
 H "fnord bugs"

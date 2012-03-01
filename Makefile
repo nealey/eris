@@ -1,6 +1,7 @@
 VERSION := $(shell head -n 1 CHANGES | tr -d :)
 
-CFLAGS = -DFNORD='"eris/$(VERSION)"' -Wall -Werror
+CFLAGS = -DFNORD='"eris/$(VERSION)"' -Wall
+#-Werror
 
 all: eris
 
