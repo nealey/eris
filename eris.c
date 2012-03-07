@@ -59,8 +59,8 @@
 /* Maximum size of a request line */
 #define MAXREQUESTLEN 2048
 
-/* Maximum number of headers */
-#define MAXHEADERS 40
+/* Maximum number of header fields */
+#define MAXHEADERFIELDS 60
 
 /*
  * Options
@@ -169,8 +169,9 @@ badrequest(long code, const char *httpcomment, const char *message)
 size_t
 extract_header_field(char *buf, char **val, int cgi)
 {
-    size_t pos = 0;    /* Input */
-    size_t len = 0;    /* Output */
+    size_t len;
+
+    *val = NULL;
 
     for (len = 0; buf[len]; len += 1) {
         if (! *val) {
@@ -568,7 +569,6 @@ handle_request()
     char  request[MAXREQUESTLEN];
     char  fspath[MAXREQUESTLEN];
     char  buf[MAXHEADERLEN];
-    char *env[MAXHEADERS + 1];
     char *p;
     char *query_string = NULL;
     int   method;
@@ -659,7 +659,7 @@ handle_request()
     /* Read header fields */
     {
         char  *base = buf;
-        size_t nheaders = 0;
+        int    nheaders = 0;
 
         while (1) {
             char   *cgi_name = base;
@@ -672,7 +672,7 @@ handle_request()
             if (plen < 40) {
                 badrequest(431, "Request Header Too Large", "The HTTP header block was too large");
             }
-            if (nheaders >= MAXHEADERS) {
+            if (nheaders++ >= MAXHEADERFIELDS) {
                 badrequest(431, "Request Header Too Large", "Too many HTTP Headers");
             }
             strcpy(cgi_name, "HTTP_");
@@ -694,6 +694,11 @@ handle_request()
                 badrequest(400, "Invalid header", "Unable to parse header block");
             }
 
+            /* Set up CGI environment variables */
+            setenv(cgi_name, val, 1);
+
+            /* Handle special header fields */
+            base = name + len + 1;
             if (! strcmp(name, "HOST")) {
                 host = val;
             } else if (! strcmp(name, "USER_AGENT")) {
@@ -708,25 +713,12 @@ handle_request()
                 }
             } else if (! strcmp(name, "IF_MODIFIED_SINCE")) {
                 ims = timerfc(val);
+            } else {
+                /* We can re-use this buffer space */
+                base = cgi_name;
             }
                 
-            /* Set up CGI environment variables */
-            {
-                char *d = name + strlen(name);
-                char *s = val;
-
-                *(d++) = '=';
-                while (*s) {
-                    *(d++) = *(s++);
-                }
-                *d = '\0';
-                DUMP_s(cgi_name);
-
-                env[nheaders++] = cgi_name;
-                base = d + 1;
-            }
         }
-        env[nheaders] = NULL;
     }
 
     /* Try to change into the appropriate directory */
@@ -752,6 +744,9 @@ handle_request()
             badrequest(404, "Not Found", "This host is not served here");
         }
     }
+
+    /* Serve the file */
+    execl("/bin/sh", "sh", "-c", "set", NULL);
 
     return;
 }
