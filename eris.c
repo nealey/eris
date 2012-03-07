@@ -59,6 +59,9 @@
 /* Maximum size of a request line */
 #define MAXREQUESTLEN 2048
 
+/* Maximum number of headers */
+#define MAXHEADERS 40
+
 /*
  * Options
  */
@@ -1244,12 +1247,14 @@ enum { GET, POST, HEAD };
 void
 handle_request()
 {
-    char request[MAXREQUESTLEN];
-    char fspath[MAXREQUESTLEN];
-    char buf[MAXHEADERLEN];
+    char  request[MAXREQUESTLEN];
+    char  fspath[MAXREQUESTLEN];
+    char  buf[MAXHEADERLEN];
+    char *env[MAXHEADERS + 1];
     char *p;
     char *query_string = NULL;
-    int method;
+    int   method;
+    time_t ims = 0;
 
     host = NULL;
     user_agent = NULL;
@@ -1327,21 +1332,30 @@ handle_request()
     if (! ((http_version == 0) || (http_version == 1))) {
         badrequest(505, "Version Not Supported", "HTTP version not supported");
     }
-    DUMP_d(http_version);
+    if (http_version == 1) {
+        keepalive = 1;
+    } else {
+        keepalive = 0;
+    }
 
     /* Read header fields */
     {
-        size_t offset = 0;
+        char  *base = buf;
+        size_t nheaders = 0;
 
         while (1) {
-            char   *cgi_name = buf + offset;
+            char   *cgi_name = base;
             char   *p;
-            int     plen = (sizeof buf) - offset;
+            int     plen = (sizeof buf) - (base - buf);
             char   *name, *val;
             size_t  len;
 
+            /* 40 is totally arbitrary here. */
             if (plen < 40) {
                 badrequest(431, "Request Header Too Large", "The HTTP header block was too large");
+            }
+            if (nheaders >= MAXHEADERS) {
+                badrequest(431, "Request Header Too Large", "Too many HTTP Headers");
             }
             strcpy(cgi_name, "HTTP_");
             plen -= 5;
@@ -1358,20 +1372,44 @@ handle_request()
             }
 
             name = p;
-            DUMP_u(len);
-            DUMP_s(cgi_name);
-            DUMP_s(name);
-            DUMP_s(val);
             if (! val) {
                 badrequest(400, "Invalid header", "Unable to parse header block");
             }
 
-            if (docgi) {
-                /* Set this up for a later call to exec */
-                setenv(cgi_name, val, 1);
+            if (! strcmp(name, "HOST")) {
+                host = val;
+            } else if (! strcmp(name, "USER_AGENT")) {
+                user_agent = val;
+            } else if (! strcmp(name, "REFERER")) {
+                refer = val;
+            } else if (! strcmp(name, "CONNECTION")) {
+                if (! strcasecmp(val, "keep-alive")) {
+                    keepalive = 1;
+                } else {
+                    keepalive = 0;
+                }
+            } else if (! strcmp(name, "IF_MODIFIED_SINCE")) {
+                ims = timerfc(val);
+                DUMP_d(ims);
             }
+                
+            /* Set up env for CGI */
+            {
+                char *d = name + strlen(name);
+                char *s = val;
 
+                *(d++) = '=';
+                while (*s) {
+                    *(d++) = *(s++);
+                }
+                *d = '\0';
+                DUMP_s(cgi_name);
+
+                env[nheaders++] = cgi_name;
+                base = d + 1;
+            }
         }
+        env[nheaders] = NULL;
     }
 
     return;
@@ -1380,6 +1418,8 @@ handle_request()
 int
 main(int argc, char *argv[], const char *const *envp)
 {
+    int cwd = open(".", O_RDONLY);
+
     parse_options(argc, argv);
 
     setbuffer(stdout, stdout_buf, sizeof stdout_buf);
@@ -1389,6 +1429,7 @@ main(int argc, char *argv[], const char *const *envp)
 
     do {
         handle_request();
+        fchdir(cwd);
     } while (keepalive);
 
     return 0;
