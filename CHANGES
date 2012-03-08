@@ -1,3 +1,7 @@
+3.0:
+  More or less a ground-up rewrite.  A few fnord parts remain
+    here and there.
+
 2.0:
   Replace poll with select, which is more portable and may be
     slightly faster; however, it's only called for CGI and by

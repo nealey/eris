@@ -1,9 +1,11 @@
 VERSION := $(shell head -n 1 CHANGES | tr -d :)
 
-CFLAGS = -DFNORD='"eris/$(VERSION)"' -Wall
-#-Werror
+CFLAGS = -DFNORD='"eris/$(VERSION)"' -Wall -Werror
 
 all: eris
+
+eris: eris.c strings.c mime.c time.c
+	$(CC) $(CFLAGS) -o $@ $<
 
 test: eris
 	sh ./test.sh

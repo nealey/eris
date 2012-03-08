@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <ctype.h>
+#include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <time.h>
@@ -44,6 +45,10 @@
 #define DUMP_p(v) DUMPf("%s = %p", #v, v)
 #define DUMP_buf(v, l) DUMPf("%s = %.*s", #v, (int)(l), v)
 
+#include "strings.c"
+#include "mime.c"
+#include "time.c"
+
 /* Wait this long (seconds) for a valid HTTP request */
 #define READTIMEOUT 2
 
@@ -67,7 +72,7 @@
  */
 int             doauth = 0;
 int             docgi = 0;
-int             dirlist = 0;
+int             doidx = 0;
 int             redirect = 0;
 int             portappend = 0;
 
@@ -77,15 +82,22 @@ char           *remote_ip = NULL;
 char           *remote_port = NULL;
 char           *remote_ident = NULL;
 
-/* Things that are really super convenient to have globally */
+/*
+ * Things that are really super convenient to have globally.
+ * These could be put into a struct for a threading version
+ * of eris.
+ */
+enum { GET, POST, HEAD } method;
 char *host;
 char *user_agent;
 char *refer;
 char *path;
 int   http_version;
+size_t content_length;
+char *query_string = NULL;
+off_t range_start, range_end;
+time_t ims = 0;
 
-static const char days[] = "SunMonTueWedThuFriSat";
-static const char months[] = "JanFebMarAprMayJunJulAugSepOctNovDec";
 
 #define BUFFER_SIZE 8192
 char            stdout_buf[BUFFER_SIZE];
@@ -109,21 +121,6 @@ cork(int enable)
 #endif
 }
 
-
-/** Replace whitespace with underscores for logging */
-static void
-sanitize(char *s)
-{
-    if (!s) {
-        return;
-    }
-    for (; *s; s += 1) {
-        if (isspace(*s)) {
-            *s = '_';
-        }
-    }
-}
-
 /** Log a request */
 static void
 dolog(int code, off_t len)
@@ -136,6 +133,20 @@ dolog(int code, off_t len)
             remote_ip, code, (unsigned long) len, host, user_agent, refer, path);
 }
 
+void
+header(unsigned int code, const char *httpcomment)
+{
+    printf("HTTP/1.%d %u %s\r\n", http_version, code, httpcomment);
+    printf("Server: " FNORD "\r\n");
+    printf("Connection: %s\r\n", keepalive?"keep-alive":"close");
+}
+
+void
+eoh()
+{
+    printf("\r\n");
+}
+
 /*
  * output an error message and exit 
  */
@@ -144,357 +155,36 @@ badrequest(long code, const char *httpcomment, const char *message)
 {
     size_t msglen = 0;
 
-    printf("HTTP/1.0 %ld %s\r\nConnection: close\r\n", code, httpcomment);
+    keepalive = 0;
+    header(code, httpcomment);
     if (message) {
         msglen = (strlen(message) * 2) + 15;
 
-        printf("Content-Length: %lu\r\nContent-Type: text/html\r\n\r\n",
+        printf("Content-Length: %lu\r\nContent-Type: text/html\r\n",
                (unsigned long) msglen);
         printf("<title>%s</title>%s", message, message);
-    } else {
-        fputs("\r\n", stdout);
     }
+    printf("\r\n");
     fflush(stdout);
     dolog(code, msglen);
 
     exit(0);
 }
 
-
-/** Parse a header out of a line.
- *
- * This capitalizes the header name, and strips trailing [\r\n]
- * Returns the length of the line (after stripping)
- */
-size_t
-extract_header_field(char *buf, char **val, int cgi)
+void
+not_found()
 {
-    size_t len;
+    char msg[] = "The requested URL does not exist here.";
 
-    *val = NULL;
-
-    for (len = 0; buf[len]; len += 1) {
-        if (! *val) {
-            if (buf[len] == ':') {
-                buf[len] = 0;
-                for (*val = &(buf[len+1]); **val == ' '; *val += 1);
-            } else if (cgi) {
-                switch (buf[len]) {
-                    case 'a'...'z':
-                        buf[len] ^= ' ';
-                        break;
-                    case 'A'...'Z':
-                    case '0'...'9':
-                    case '\r':
-                    case '\n':
-                        break;
-                    default:
-                        buf[len] = '_';
-                        break;
-                }
-            }
-        }
-    }
-
-    for (; (buf[len-1] == '\n') || (buf[len-1] == '\r'); len -= 1);
-    buf[len] = 0;
-
-    return len;
+    header(404, "Not Found");
+    printf("Content-Type: text/html\r\n");
+    printf("Content-Length: %d\r\n", sizeof msg);
+    printf("\r\n");
+    printf("%s\n", msg);    /* sizeof msg includes the NULL */
+    dolog(404, sizeof msg);
+    fflush(stdout);
 }
 
-
-int
-fromhex(int c)
-{
-    if (c >= '0' && c <= '9')
-        return c - '0';
-    else {
-        c |= ' ';
-        if (c >= 'a' && c <= 'f')
-            return c - 'a' + 10;
-    }
-    return -1;
-}
-
-/*
- * header(buf,buflen,"User-Agent")="Mozilla" 
- */
-static char    *
-header(char *buf, int buflen, const char *hname)
-{
-    int             slen = strlen(hname);
-    int             i;
-    char           *c;
-
-    for (i = 0; i < buflen - slen - 2; ++i) {
-        if (!strncasecmp(buf + i, hname, slen)) {
-            if (i && (buf[i - 1] && buf[i - 1] != '\n'))
-                continue;
-            if (buf[i + slen] != ':' || buf[i + slen + 1] != ' ')
-                continue;
-            c = buf + i + slen + 2;
-            i += slen + 2;
-            for (; i < buflen; ++i) {
-                if (buf[i] == 0 || buf[i] == '\n' || buf[i] == '\r') {
-                    buf[i] = 0;
-                    break;
-                }
-            }
-            while (*c == ' ' || *c == '\t')
-                ++c;
-            return c;
-        }
-    }
-    return 0;
-}
-
-static struct mimeentry {
-    const char     *name,
-                   *type;
-} mimetab[] = {
-    {
-    "html", "text/html; charset=UTF-8"}, {
-    "htm", "text/html; charset=UTF-8"}, {
-    "txt", "text/plain; charset=UTF-8"}, {
-    "css", "text/css"}, {
-    "ps", "application/postscript"}, {
-    "pdf", "application/pdf"}, {
-    "js", "application/javascript"}, {
-    "gif", "image/gif"}, {
-    "png", "image/png"}, {
-    "jpeg", "image/jpeg"}, {
-    "jpg", "image/jpeg"}, {
-    "svg", "image/svg+xml"}, {
-    "mpeg", "video/mpeg"}, {
-    "mpg", "video/mpeg"}, {
-    "avi", "video/x-msvideo"}, {
-    "mov", "video/quicktime"}, {
-    "qt", "video/quicktime"}, {
-    "mp3", "audio/mpeg"}, {
-    "ogg", "audio/ogg"}, {
-    "wav", "audio/x-wav"}, {
-    "epub", "application/epub+zip"}, {
-    "dvi", "application/x-dvi"}, {
-    "pac", "application/x-ns-proxy-autoconfig"}, {
-    "sig", "application/pgp-signature"}, {
-    "swf", "application/x-shockwave-flash"}, {
-    "torrent", "application/x-bittorrent"}, {
-    "tar", "application/x-tar"}, {
-    "zip", "application/zip"}, {
-    "dtd", "text/xml"}, {
-    "xml", "text/xml"}, {
-    "xbm", "image/x-xbitmap"}, {
-    "xpm", "image/x-xpixmap"}, {
-    "xwd", "image/x-xwindowdump"}, {
-    "ico", "image/x-icon"}, {
-    0, 0}};
-
-static const char *default_mimetype = "application/octet-stream";
-
-/*
- * Determine MIME type from file extension
- */
-static const char *
-getmimetype(char *url)
-{
-    char *ext = strrchr(url, '.');
-
-
-    if (ext) {
-        int             i;
-
-        ext++;
-        for (i = 0; mimetab[i].name; ++i) {
-            if (!strcmp(mimetab[i].name, ext)) {
-                return mimetab[i].type;
-            }
-        }
-    }
-    return default_mimetype;
-}
-
-
-/*
- *   timerfc function Copyright 1996, Michiel Boland.
- *   All rights reserved.
- *
- *   Redistribution and use in source and binary forms, with or
- *   without modification, are permitted provided that the following
- *   conditions are met:
- *
- *   1. Redistributions of source code must retain the above
- *      copyright notice, this list of conditions and the following
- *      disclaimer.
- *
- *   2. Redistributions in binary form must reproduce the above
- *      copyright notice, this list of conditions and the following
- *      disclaimer in the documentation and/or other materials
- *      provided with the distribution.
- *
- *   3. The name of the author may not be used to endorse or promote
- *      products derived from this software without specific prior
- *      written permission.
- *
- *   THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY
- *   EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
- *   THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A
- *   PARTICULAR PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR
- *   BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
- *   EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED
- *   TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
- *   DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
- *   ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
- *   LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING
- *   IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
- *   THE POSSIBILITY OF SUCH DAMAGE.
- */
-static          time_t
-timerfc(const char *s)
-{
-    static const int daytab[2][12] = {
-        {0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334},
-        {0, 31, 60, 91, 121, 152, 182, 213, 244, 274, 305, 335}
-    };
-    unsigned        sec,
-                    min,
-                    hour,
-                    day,
-                    mon,
-                    year;
-    char            month[3];
-    int             c;
-    unsigned        n;
-    char            flag;
-    char            state;
-    char            isctime;
-    enum { D_START, D_END, D_MON, D_DAY, D_YEAR, D_HOUR, D_MIN, D_SEC };
-
-    sec = 60;
-    min = 60;
-    hour = 24;
-    day = 32;
-    year = 1969;
-    isctime = 0;
-    month[0] = 0;
-    state = D_START;
-    n = 0;
-    flag = 1;
-    do {
-        c = *s++;
-        switch (state) {
-            case D_START:
-                if (c == ' ') {
-                    state = D_MON;
-                    isctime = 1;
-                } else if (c == ',')
-                    state = D_DAY;
-                break;
-            case D_MON:
-                if (isalpha(c)) {
-                    if (n < 3)
-                        month[n++] = c;
-                } else {
-                    if (n < 3)
-                        return -1;
-                    n = 0;
-                    state = isctime ? D_DAY : D_YEAR;
-                }
-                break;
-            case D_DAY:
-                if (c == ' ' && flag);
-                else if (isdigit(c)) {
-                    flag = 0;
-                    n = 10 * n + (c - '0');
-                } else {
-                    day = n;
-                    n = 0;
-                    state = isctime ? D_HOUR : D_MON;
-                }
-                break;
-            case D_YEAR:
-                if (isdigit(c))
-                    n = 10 * n + (c - '0');
-                else {
-                    year = n;
-                    n = 0;
-                    state = isctime ? D_END : D_HOUR;
-                }
-                break;
-            case D_HOUR:
-                if (isdigit(c))
-                    n = 10 * n + (c - '0');
-                else {
-                    hour = n;
-                    n = 0;
-                    state = D_MIN;
-                }
-                break;
-            case D_MIN:
-                if (isdigit(c))
-                    n = 10 * n + (c - '0');
-                else {
-                    min = n;
-                    n = 0;
-                    state = D_SEC;
-                }
-                break;
-            case D_SEC:
-                if (isdigit(c))
-                    n = 10 * n + (c - '0');
-                else {
-                    sec = n;
-                    n = 0;
-                    state = isctime ? D_YEAR : D_END;
-                }
-                break;
-        }
-    } while (state != D_END && c);
-    switch (month[0]) {
-        case 'A':
-            mon = (month[1] == 'p') ? 4 : 8;
-            break;
-        case 'D':
-            mon = 12;
-            break;
-        case 'F':
-            mon = 2;
-            break;
-        case 'J':
-            mon = (month[1] == 'a') ? 1 : ((month[2] == 'l') ? 7 : 6);
-            break;
-        case 'M':
-            mon = (month[2] == 'r') ? 3 : 5;
-            break;
-        case 'N':
-            mon = 11;
-            break;
-        case 'O':
-            mon = 10;
-            break;
-        case 'S':
-            mon = 9;
-            break;
-        default:
-            return -1;
-    }
-    if (year <= 100)
-        year += (year < 70) ? 2000 : 1900;
-    --mon;
-    --day;
-    if (sec >= 60 || min >= 60 || hour >= 60 || day >= 31)
-        return -1;
-    if (year < 1970)
-        return 0;
-    return sec + 60L * (min + 60L * (hour + 24L * (day +
-                                                   daytab[year % 4 == 0
-                                                          && (year % 100
-                                                              || year %
-                                                              400 ==
-                                                              0)][mon] +
-                                                   365L * (year - 1970L) +
-                                                   ((year -
-                                                     1969L) >> 2))));
-}
 
 void
 get_ucspi_env()
@@ -535,7 +225,7 @@ parse_options(int argc, char *argv[])
                 docgi = 1;
                 break;
             case 'd':
-                dirlist = 1;
+                doidx = 1;
                 break;
             case 'p':
                 portappend = 1;
@@ -561,29 +251,261 @@ parse_options(int argc, char *argv[])
     }
 }
 
-enum { GET, POST, HEAD };
+
+void
+fake_sendfile(int out_fd, int in_fd, off_t *offset, size_t count)
+{
+    char buf[BUFFER_SIZE];
+    ssize_t l, m;
+
+    /* is mmap quicker?  does it matter? */
+    if (-1 == lseek(in_fd, *offset, SEEK_SET)) {
+        /* We're screwed.  The most helpful thing we can do now is die. */
+        fprintf(stderr, "Unable to seek.  Dying.\n");
+        exit(0);
+    }
+    l = read(in_fd, buf, min(count, sizeof buf));
+    if (-1 == l) {
+        /* Also screwed. */
+        fprintf(stderr, "Unable to read an open file.  Dying.\n");
+        exit(0);
+    }
+    *offset += l;
+
+    while (l) {
+        m = write(out_fd, buf, l);
+        if (-1 == m) {
+            /* ALSO screwed. */
+            fprintf(stderr, "Unable to write to client.  Dying.\n");
+            exit(0);
+        }
+        l -= m;
+    }
+}
+
+void
+serve_file(int fd, char *filename, struct stat *st)
+{
+    off_t len, remain;
+
+    if (method == POST) {
+        badrequest(405, "Method Not Supported", "POST is not supported by this URL");
+    }
+
+    if (st->st_mtime < ims) {
+        header(304, "Not Changed");
+        eoh();
+        return;
+    }
+
+    header(200, "OK");
+    printf("Content-Type: %s\r\n", getmimetype(filename));
+
+    if ((range_end == 0) || (range_end > st->st_size)) {
+        range_end = st->st_size;
+    }
+    len = range_end - range_start;
+    printf("Content-Length: %llu\r\n", (unsigned long long) len);
+
+    {
+        struct tm *tp;
+        char buf[40];
+
+        tp = gmtime(&(st->st_mtime));
+
+        strftime(buf, sizeof buf, "%a, %d %b %Y %H:%M:%S GMT", tp);
+        printf("Last-Modified: %s\r\n", buf);
+    }
+
+    eoh();
+    fflush(stdout);
+
+    if (method == HEAD) {
+        return;
+    }
+
+    for (remain = len; remain; ) {
+        size_t count = min(remain, SIZE_MAX);
+        ssize_t sent;
+
+        sent = sendfile(1, fd, &range_start, count);
+        if (-1 == sent) {
+            fake_sendfile(1, fd, &range_start, count);
+        }
+        remain -= sent;
+    }
+
+    dolog(200, len);
+}
+
+void
+serve_idx(int fd, char *path)
+{
+    DIR *d = fdopendir(fd);
+    struct dirent *de;
+
+    if (method == POST) {
+        badrequest(405, "Method Not Supported", "POST is not supported by this URL");
+    }
+
+    keepalive = 0;
+    header(200, "OK");
+    printf("Content-Type: text/html\r\n");
+    eoh();
+
+    printf("<!DOCTYPE html>\r<html><head><title>");
+    html_esc(stdout, path);
+    printf("</title></head><body><h1>Directory Listing: ");
+    html_esc(stdout, path);
+    printf("</h1><pre>");
+    if (path[1]) {
+        printf("<a href=\"../\">Parent Directory</a>\n");
+    }
+
+    while ((de = readdir(d))) {
+        char           *name = de->d_name;
+        char            symlink[PATH_MAX];
+        struct stat     st;
+
+        if (name[0] == '.') {
+            continue;   /* hidden files -> skip */
+        }
+        if (lstat(name, &st)) {
+            continue;   /* can't stat -> skip */
+        }
+
+        if (S_ISDIR(st.st_mode)) {
+            printf("[DIR]            ");
+        } else if (S_ISLNK(st.st_mode)) {
+            ssize_t         len = readlink(de->d_name, symlink, (sizeof symlink) - 1);
+
+            if (len < 1) {
+                continue;
+            }
+            name = symlink;
+            printf("[LNK]            ");        /* symlink */
+        } else if (S_ISREG(st.st_mode)) {
+            printf("[   ]  %10llu", (unsigned long long)st.st_size);
+        } else {
+            continue;   /* not a file we can provide -> skip */
+        }
+
+        /*
+         * write a href 
+         */
+        printf("  <a href=\"");
+        url_esc(stdout, name);
+        if (S_ISDIR(st.st_mode)) {
+            printf("/");
+        }
+        printf("\">");
+        url_esc(stdout, name);
+        printf("</a>\n");
+    }
+    printf("</pre></body></html>");
+    fflush(stdout);
+}
+
+void
+serve_cgi(char *path)
+{
+    DUMP_s(path);
+}
+
+void
+find_serve_file(char *relpath)
+{
+    int fd;
+    struct stat st;
+
+    /* Open fspath.  If that worked, */
+    if ((fd = open(relpath, O_RDONLY)) > -1) {
+        fstat(fd, &st);
+        /* If it is a directory, */
+        if (S_ISDIR(st.st_mode)) {
+            char path2[PATH_MAX];
+            int fd2;
+
+            /* Redirect if it doesn't end with / */
+            if (! endswith(path, "/")) {
+                header(301, "Redirect");
+                printf("Location: %s/", path);
+                eoh();
+                return;
+            }
+    
+            /* Open relpath + "index.html".  If that worked,*/
+             snprintf(path2, sizeof path2, "%sindex.html", relpath);
+             if ((fd2 = open(path2, O_RDONLY)) > -1) {
+                /* serve that file and return. */
+                fstat(fd2, &st);
+                serve_file(fd2, path2, &st);
+                close(fd2);
+                close(fd);
+                return;
+             } else {
+                if (docgi) {
+                    snprintf(path2, sizeof path2, "%sindex.cgi", relpath);
+                    if (! stat(path2, &st)) {
+                        return serve_cgi(path2);
+                    }
+                }
+                if (doidx) {
+                    serve_idx(fd, relpath + 1);
+                    close(fd);
+                    return;
+                }
+                return not_found();
+             }
+        } else {
+            if (docgi && endswith(relpath, ".cgi")) {
+                close(fd);
+                return serve_cgi(relpath);
+            }
+            serve_file(fd, relpath, &st);
+        }
+    } else {
+        if (docgi && (errno == ENOTDIR)) {
+            char *p;
+
+            if ((p = strstr(relpath, ".cgi"))) {
+                p += 4;
+                setenv("PATH_INFO", p, 1);
+                *p = 0;
+                if (! stat(relpath, &st)) {
+                    close(fd);
+                    return serve_cgi(relpath);
+                }
+            }
+        }
+        return not_found();
+    }
+}
 
 void
 handle_request()
 {
     char  request[MAXREQUESTLEN];
-    char  fspath[MAXREQUESTLEN];
+    char  fspath[PATH_MAX];
     char  buf[MAXHEADERLEN];
     char *p;
-    char *query_string = NULL;
-    int   method;
-    time_t ims = 0;
 
     host = NULL;
     user_agent = NULL;
     refer = NULL;
     path = NULL;
+    range_start = 0;
+    range_end = 0;
+    content_length = 0;
 
     alarm(READTIMEOUT);
 
     /* Read request line first */
     request[0] = 0;
-    fgets(request, sizeof request, stdin);
+    if (NULL == fgets(request, sizeof request, stdin)) {
+        /* They must have hung up! */
+        exit(0);
+    }
     if (!strncmp(request, "GET /", 5)) {
         method = GET;
         p = request + 5;
@@ -598,12 +520,12 @@ handle_request()
         badrequest(405, "Method Not Allowed", "Unsupported HTTP method.");
     }
 
-    /* Interpret path into fspath */
+    /* Interpret path into fspath. */
     path = p - 1;
     {
-        char *fsp = fspath;
-
-        *(fsp++) = '/';
+        FILE *f = fmemopen(fspath, sizeof fspath, "w");
+        
+        fprintf(f, "./");
         for (; *p != ' '; p += 1) {
             if (! query_string) {
                 char c = *p;
@@ -634,20 +556,20 @@ handle_request()
                         break;
                 }
 
-                *(fsp++) = c;
+                fputc(c, f);
             }
         }
-        *fsp = 0;
-        DUMP_s(fspath);
+        fputc(0, f);
+        fclose(f);
     }
     *(p++) = 0;         /* NULL-terminate path */
-    DUMP_s(path);
 
     http_version = -1;
-    if (! strncmp(p, "HTTP/1.", 7) && (p[8] || (p[8] == '\r') || (p[8] == '\n'))) {
+    if (! strncmp(p, "HTTP/1.", 7) && p[8] && ((p[8] == '\r') || (p[8] == '\n'))) {
         http_version = p[7] - '0';
     }
     if (! ((http_version == 0) || (http_version == 1))) {
+        http_version = 0;
         badrequest(505, "Version Not Supported", "HTTP version not supported");
     }
     if (http_version == 1) {
@@ -697,14 +619,19 @@ handle_request()
             /* Set up CGI environment variables */
             setenv(cgi_name, val, 1);
 
+            /* By default, re-use buffer space */
+            base = cgi_name;
+
             /* Handle special header fields */
-            base = name + len + 1;
             if (! strcmp(name, "HOST")) {
                 host = val;
+                base = name + len + 1;
             } else if (! strcmp(name, "USER_AGENT")) {
                 user_agent = val;
+                base = name + len + 1;
             } else if (! strcmp(name, "REFERER")) {
                 refer = val;
+                base = name + len + 1;
             } else if (! strcmp(name, "CONNECTION")) {
                 if (! strcasecmp(val, "keep-alive")) {
                     keepalive = 1;
@@ -713,11 +640,21 @@ handle_request()
                 }
             } else if (! strcmp(name, "IF_MODIFIED_SINCE")) {
                 ims = timerfc(val);
-            } else {
-                /* We can re-use this buffer space */
-                base = cgi_name;
+            } else if (! strcmp(name, "CONTENT_LENGTH")) {
+                content_length = (size_t) strtoull(val, NULL, 10);
+            } else if (! strcmp(name, "RANGE")) {
+                /* Range: bytes=17-23 */
+                /* Range: bytes=23- */
+                if (! strncmp(val, "bytes=", 6)) {
+                    p = val + 6;
+                    range_start = (off_t) strtoull(p, &p, 10);
+                    if (*p == '-') {
+                        range_end = (off_t) strtoull(p+1, NULL, 10);
+                    } else {
+                        range_end = 0;
+                    }
+                }
             }
-                
         }
     }
 
@@ -725,7 +662,11 @@ handle_request()
     {
         char fn[PATH_MAX];
 
-        strncpy(fn, host, sizeof fn);
+        if (host) {
+            strncpy(fn, host, sizeof fn);
+        } else {
+            fn[0] = 0;
+        }
         if (fn[0] == '.') {
             fn[0] = ':';
         }
@@ -737,6 +678,9 @@ handle_request()
                 case ':':
                     *p = 0;
                     break;
+                case 'A'...'Z':
+                    *p ^= ' ';
+                    break;
             }
         }
 
@@ -746,7 +690,9 @@ handle_request()
     }
 
     /* Serve the file */
-    execl("/bin/sh", "sh", "-c", "set", NULL);
+    cork(1);
+    find_serve_file(fspath);
+    cork(0);
 
     return;
 }

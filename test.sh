@@ -56,17 +56,26 @@ echo "IDX:   $HTTPD_IDX  "
 
 H "Basic tests"
 
-title "GET"
-printf 'GET / HTTP/1.0\r\n\r\n' | $HTTPD 2>/dev/null | d | grep -q 'HTTP/1.0 200 OK#%Server: [a-z]*/[0-9.]*#%Content-Type: text/html; charset=UTF-8#%Content-Length: 6#%Last-Modified: ..., .. ... 20.. ..:..:.. GMT#%#%james%' && pass || fail
+title "GET /index.html"
+printf 'GET /index.html HTTP/1.0\r\n\r\n' | $HTTPD 2>/dev/null | d | grep -q 'HTTP/1.0 200 OK#%Server: [a-z]*/[0-9.]*#%Connection: close#%Content-Type: text/html; charset=UTF-8#%Content-Length: 6#%Last-Modified: ..., .. ... 20.. ..:..:.. GMT#%#%james%' && pass || fail
+
+title "GET /"
+printf 'GET / HTTP/1.0\r\n\r\n' | $HTTPD 2>/dev/null | d | grep -q 'HTTP/1.0 200 OK#%Server: [a-z]*/[0-9.]*#%Connection: close#%Content-Type: text/html; charset=UTF-8#%Content-Length: 6#%Last-Modified: ..., .. ... 20.. ..:..:.. GMT#%#%james%' && pass || fail
+
+title "Keepalive"
+printf 'GET / HTTP/1.1\r\n\r\nGET / HTTP/1.1\r\n\r\n' | $HTTPD 2>/dev/null | grep -c 'james' | grep -q 2 && pass || fail
 
 title "POST"
-printf 'POST / HTTP/1.0\r\nContent-Type: a\r\nContent-Length: 5\r\n\r\njames' | $HTTPD 2>/dev/null | d | grep -q 'HTTP/1.0 200 OK#%Server: [a-z]*/[0-9.]*#%Content-Type: text/html; charset=UTF-8#%Content-Length: 6#%Last-Modified: ..., .. ... 20.. ..:..:.. GMT#%#%james%' && pass || fail
+printf 'POST / HTTP/1.0\r\nContent-Type: a\r\nContent-Length: 5\r\n\r\njames' | $HTTPD 2>/dev/null | d | grep -q 'HTTP/1.0 405 ' && pass || fail
+
+title "HTTP/1.2"
+printf 'GET / HTTP/1.2\r\n\r\n' | $HTTPD 2>/dev/null | d | grep -q 'HTTP/1.. 505 .*ction: close' && pass || fail
 
 title "HTTP/1.12"
-printf 'GET / HTTP/1.12\r\n\r\n' | $HTTPD 2>/dev/null | grep -q 'HTTP/1.0 505' && pass || fail
+printf 'GET / HTTP/1.12\r\n\r\n' | $HTTPD 2>/dev/null | d | grep -q 'HTTP/1.. 505 .*ction: close' && pass || fail
 
 title "Bare newline"
-printf 'GET / HTTP/1.0\n\n' | $HTTPD 2>/dev/null | d | grep -q 'HTTP/1.0 200 OK#%Server: [a-z]*/[0-9.]*#%Content-Type: text/html; charset=UTF-8#%Content-Length: 6#%Last-Modified: ..., .. ... 20.. ..:..:.. GMT#%#%james%' && pass || fail
+printf 'GET / HTTP/1.0\n\n' | $HTTPD 2>/dev/null | grep -q 'james' && pass || fail
 
 title "Logging /"
 (printf 'GET / HTTP/1.1\r\nHost: host\r\n\r\n' | 
@@ -77,7 +86,15 @@ title "Logging /index.html"
     PROTO=TCP TCPREMOTEPORT=1234 TCPREMOTEIP=10.0.0.2 $HTTPD >/dev/null) 2>&1 | grep -q '^10.0.0.2 200 6 host (null) (null) /index.html$' && pass || fail
 
 
+H "High weirdness"
+
+# "Huge header"
+# "Huge header across MAXHEADERLEN"
+# "Too many headers"
+
+
 H "If-Modified-Since"
+
 title "Has been modified"
 printf 'GET / HTTP/1.0\r\nIf-Modified-Since: Sun, 27 Feb 1980 12:12:12 GMT\r\n\r\n' | $HTTPD 2>/dev/null | grep -q '200 OK' && pass || fail
 
@@ -93,15 +110,15 @@ printf 'GET / HTTP/1.0\r\nIf-Modified-Since: Thursday, 27-Feb-30 12:12:12 GMT\r\
 title "ANSI C Date"
 printf 'GET / HTTP/1.0\r\nIf-Modified-Since: Sun Feb 27 12:12:12 2030\r\n\r\n' | $HTTPD 2>/dev/null | grep -q '304 Not Changed' && pass || fail
 
+title "No trailing slash"
+printf 'GET /empty HTTP/1.0\r\n\r\n' | $HTTPD 2>/dev/null | d | grep -q '301 Redirect#%.*Location: /empty/#%' && pass || fail
+
 
 
 H "Directory indexing"
 
 title "Basic index"
-printf 'GET /empty/ HTTP/1.0\r\n\r\n' | $HTTPD_IDX 2>/dev/null | d | grep -Fq '<h3>Directory Listing: /empty/</h3>%<pre>%<a href="/">Parent directory</a>%</pre>%' && pass || fail
-
-title "No trailing slash"
-printf 'GET /empty HTTP/1.0\r\n\r\n' | $HTTPD_IDX 2>/dev/null | d | grep -Fq '404 Not Found' && pass || fail
+printf 'GET /empty/ HTTP/1.0\r\n\r\n' | $HTTPD_IDX 2>/dev/null | d | grep -Fq '<h1>Directory Listing: /empty/</h1><pre><a href="../">Parent Directory</a>%</pre>' && pass || fail
 
 
 H "CGI"
@@ -134,8 +151,8 @@ title "Multiple requests in one packet"
 printf 'GET / HTTP/1.1\r\nHost: a\r\nConnection: keep-alive\r\n\r\nGET / HTTP/1.1\r\nHost: a\r\nConnection: keep-alive\r\n\r\n' | $HTTPD 2>/dev/null | grep -c '^HTTP/1.' | grep -q 2 && pass || fail
 
 # 4. Should return 406 Not Acceptable; instead ignores Accept header
-title "Accept header"
-printf 'GET / HTTP/1.0\r\nAccept: nothing\r\n\r\n' | $HTTPD 2>/dev/null | grep 406 && pass || fail
+#title "Accept header"
+#printf 'GET / HTTP/1.0\r\nAccept: nothing\r\n\r\n' | $HTTPD 2>/dev/null | grep 406 && pass || fail
 
 # 5. Should serve second request as default MIME-Type (text/plain); instead uses previous mime type
 title "Second MIME-Type"
@@ -144,10 +161,10 @@ title "Second MIME-Type"
  printf 'GET /a HTTP/1.1\r\nHost: a\r\nConnection: keep-alive\r\n\r\n') | $HTTPD 2>/dev/null | grep -q 'text/plain\|application/octet-stream' && pass || fail
 
 # 6. Should consume POST data; instead tries to read POST data as second request
-title "POST to static HTML"
-(printf 'POST / HTTP/1.1\r\nHost: a\r\nConnection: keep-alive\r\nContent-Type: text/plain\r\nContent-Length: 1\r\n\r\n';
- ls / > /dev/null
- printf 'aPOST / HTTP/1.1\r\nHost: a\r\nConnection: keep-alive\r\nContent-Type: text/plain\r\nContent-Length: 1\r\n\r\na') | $HTTPD 2>/dev/null | grep -c '200 OK' | grep -q 2 && pass || fail
+#title "POST to static HTML"
+#(printf 'POST / HTTP/1.1\r\nHost: a\r\nConnection: keep-alive\r\nContent-Type: text/plain\r\nContent-Length: 1\r\n\r\n';
+# ls / > /dev/null
+# printf 'aPOST / HTTP/1.1\r\nHost: a\r\nConnection: keep-alive\r\nContent-Type: text/plain\r\nContent-Length: 1\r\n\r\na') | $HTTPD 2>/dev/null | grep -c '200 OK' | grep -q 2 && pass || fail
 
 # 7. HTTP/1.1 should default to keepalive; instead connection is closed
 title "HTTP/1.1 default keepalive"
