@@ -45,10 +45,6 @@
 #define DUMP_p(v) DUMPf("%s = %p", #v, v)
 #define DUMP_buf(v, l) DUMPf("%s = %.*s", #v, (int)(l), v)
 
-#include "strings.c"
-#include "mime.c"
-#include "time.c"
-
 /* Wait this long (seconds) for a valid HTTP request */
 #define READTIMEOUT 2
 
@@ -77,6 +73,7 @@ int             redirect = 0;
 int             portappend = 0;
 
 /* Variables that persist between requests */
+int             cwd;
 int             keepalive = 0;
 char           *remote_ip = NULL;
 char           *remote_port = NULL;
@@ -93,14 +90,19 @@ char *user_agent;
 char *refer;
 char *path;
 int   http_version;
+char *content_type;
 size_t content_length;
-char *query_string = NULL;
 off_t range_start, range_end;
 time_t ims = 0;
 
 
 #define BUFFER_SIZE 8192
 char            stdout_buf[BUFFER_SIZE];
+
+#include "strings.c"
+#include "mime.c"
+#include "time.c"
+#include "cgi.c"
 
 /*
  * TCP_CORK is a Linux extension to work around a TCP problem.
@@ -496,6 +498,7 @@ handle_request()
     path = NULL;
     range_start = 0;
     range_end = 0;
+    content_type = NULL;
     content_length = 0;
 
     alarm(READTIMEOUT);
@@ -520,10 +523,16 @@ handle_request()
         badrequest(405, "Method Not Allowed", "Unsupported HTTP method.");
     }
 
+    if (docgi) {
+        p[-2] = 0;
+        setenv("REQUEST_METHOD", p, 1);
+    }
+
     /* Interpret path into fspath. */
     path = p - 1;
     {
         FILE *f = fmemopen(fspath, sizeof fspath, "w");
+        char *query_string = NULL;
         
         fprintf(f, "./");
         for (; *p != ' '; p += 1) {
@@ -561,8 +570,13 @@ handle_request()
         }
         fputc(0, f);
         fclose(f);
+
+        *(p++) = 0;         /* NULL-terminate path */
+
+        if (docgi && query_string) {
+            setenv("QUERY_STRING", query_string, 1);
+        }
     }
-    *(p++) = 0;         /* NULL-terminate path */
 
     http_version = -1;
     if (! strncmp(p, "HTTP/1.", 7) && p[8] && ((p[8] == '\r') || (p[8] == '\n'))) {
@@ -576,6 +590,9 @@ handle_request()
         keepalive = 1;
     } else {
         keepalive = 0;
+    }
+    if (docgi) {
+        setenv("SERVER_PROTOCOL", p, 1);
     }
 
     /* Read header fields */
@@ -617,7 +634,9 @@ handle_request()
             }
 
             /* Set up CGI environment variables */
-            setenv(cgi_name, val, 1);
+            if (docgi) {
+                setenv(cgi_name, val, 1);
+            }
 
             /* By default, re-use buffer space */
             base = cgi_name;
@@ -632,6 +651,11 @@ handle_request()
             } else if (! strcmp(name, "REFERER")) {
                 refer = val;
                 base = name + len + 1;
+            } else if (! strcmp(name, "CONTENT_TYPE")) {
+                content_type = val;
+                base = name + len + 1;
+            } else if (! strcmp(name, "CONTENT_LENGTH")) {
+                content_length = (size_t) strtoull(val, NULL, 10);
             } else if (! strcmp(name, "CONNECTION")) {
                 if (! strcasecmp(val, "keep-alive")) {
                     keepalive = 1;
@@ -640,8 +664,6 @@ handle_request()
                 }
             } else if (! strcmp(name, "IF_MODIFIED_SINCE")) {
                 ims = timerfc(val);
-            } else if (! strcmp(name, "CONTENT_LENGTH")) {
-                content_length = (size_t) strtoull(val, NULL, 10);
             } else if (! strcmp(name, "RANGE")) {
                 /* Range: bytes=17-23 */
                 /* Range: bytes=23- */
@@ -700,8 +722,9 @@ handle_request()
 int
 main(int argc, char *argv[], const char *const *envp)
 {
-    int cwd = open(".", O_RDONLY);
     parse_options(argc, argv);
+
+    cwd = open(".", O_RDONLY);
 
     setbuffer(stdout, stdout_buf, sizeof stdout_buf);
 
