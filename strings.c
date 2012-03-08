@@ -49,7 +49,7 @@ extract_header_field(char *buf, char **val, int cgi)
         if (! *val) {
             if (buf[len] == '\n') {
                 /* Blank line or incorrectly-formatted header */
-                return 0;
+                break;
             } else if (buf[len] == ':') {
                 buf[len] = 0;
                 for (*val = &(buf[len+1]); **val == ' '; *val += 1);

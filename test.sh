@@ -6,7 +6,7 @@
 
 H () {
     section="$*"
-    printf "\n%-20s: " "$*"
+    printf "\n%-20s " "$*"
 }
 
 title() {
@@ -31,28 +31,33 @@ d () {
 }
 
 
+###
+### Make web space
+###
 mkdir -p default
 echo james > default/index.html
 touch default/a
 cat <<'EOD' > default/a.cgi
 #! /bin/sh
 echo 'Content-type: text/plain'
-ls / > /dev/null   # delay a little
 echo
-if [ -n "$CONTENT_LENGTH" ]; then
-    echo "t:$CONTENT_TYPE"
-    echo -n "v:"
-    dd bs=1 count=$CONTENT_LENGTH 2>/dev/null
-else
-    echo ${QUERY_STRING:-james}
-fi
+set | sort
 EOD
 chmod +x default/a.cgi
 mkdir -p default/empty
+mkdir -p default/subdir
+touch default/subdir/a
+touch default/subdir/.hidden
+###
+###
+###
 
 echo "HTTPD: $HTTPD  "
 echo "CGI:   $HTTPD_CGI  "
 echo "IDX:   $HTTPD_IDX  "
+
+
+
 
 H "Basic tests"
 
@@ -77,6 +82,9 @@ printf 'GET / HTTP/1.12\r\n\r\n' | $HTTPD 2>/dev/null | d | grep -q 'HTTP/1.. 50
 title "Bare newline"
 printf 'GET / HTTP/1.0\n\n' | $HTTPD 2>/dev/null | grep -q 'james' && pass || fail
 
+title "No trailing slash"
+printf 'GET /empty HTTP/1.0\r\n\r\n' | $HTTPD 2>/dev/null | d | grep -q '301 Redirect#%.*Location: /empty/#%' && pass || fail
+
 title "Logging /"
 (printf 'GET / HTTP/1.1\r\nHost: host\r\n\r\n' | 
     PROTO=TCP TCPREMOTEPORT=1234 TCPREMOTEIP=10.0.0.2 $HTTPD >/dev/null) 2>&1 | grep -q '^10.0.0.2 200 6 host (null) (null) /$' && pass || fail
@@ -86,32 +94,42 @@ title "Logging /index.html"
     PROTO=TCP TCPREMOTEPORT=1234 TCPREMOTEIP=10.0.0.2 $HTTPD >/dev/null) 2>&1 | grep -q '^10.0.0.2 200 6 host (null) (null) /index.html$' && pass || fail
 
 
-H "High weirdness"
 
-# "Huge header"
-# "Huge header across MAXHEADERLEN"
-# "Too many headers"
+H "Tomfoolery"
+
+title "Non-header"
+printf 'GET / HTTP/1.0\r\na: b\r\nfoo\r\n\r\n' | $HTTPD 2>/dev/null | grep -q 'HTTP/1.. 400 ' && pass || fail
+
+title "Huge header field"
+(printf 'GET / HTTP/1.0\r\nHeader: '
+ dd if=/dev/zero bs=1k count=9 2>/dev/null | tr '\0' '.'
+ printf '\r\n\r\n') | $HTTPD 2>/dev/null | grep -q 'HTTP/1.. 431 ' && pass || fail
+
+title "Too many headers"
+(printf 'GET / HTTP/1.0\r\n'
+ for i in $(seq 500); do
+     printf 'Header: val\r\n'
+ done
+ printf '\r\n') | $HTTPD 2>/dev/null | grep -q 'HTTP/1.. 431 ' && pass || fail
+
 
 
 H "If-Modified-Since"
 
 title "Has been modified"
-printf 'GET / HTTP/1.0\r\nIf-Modified-Since: Sun, 27 Feb 1980 12:12:12 GMT\r\n\r\n' | $HTTPD 2>/dev/null | grep -q '200 OK' && pass || fail
+printf 'GET / HTTP/1.0\r\nIf-Modified-Since: Sun, 27 Feb 1980 12:12:12 GMT\r\n\r\n' | $HTTPD 2>/dev/null | grep -q 'HTTP/1.. 200 ' && pass || fail
 
 title "RFC 822 Date"
-printf 'GET / HTTP/1.0\r\nIf-Modified-Since: Sun, 27 Feb 2030 12:12:12 GMT\r\n\r\n' | $HTTPD 2>/dev/null | grep -q '304 Not Changed' && pass || fail
+printf 'GET / HTTP/1.0\r\nIf-Modified-Since: Sun, 27 Feb 2030 12:12:12 GMT\r\n\r\n' | $HTTPD 2>/dev/null | grep -q 'HTTP/1.. 304 ' && pass || fail
 
 title "RFC 850 Date"
-printf 'GET / HTTP/1.0\r\nIf-Modified-Since: Sunday, 27-Feb-30 12:12:12 GMT\r\n\r\n' | $HTTPD 2>/dev/null | grep -q '304 Not Changed' && pass || fail
+printf 'GET / HTTP/1.0\r\nIf-Modified-Since: Sunday, 27-Feb-30 12:12:12 GMT\r\n\r\n' | $HTTPD 2>/dev/null | grep -q 'HTTP/1.. 304 ' && pass || fail
 
 title "RFC 850 Thursday"
-printf 'GET / HTTP/1.0\r\nIf-Modified-Since: Thursday, 27-Feb-30 12:12:12 GMT\r\n\r\n' | $HTTPD 2>/dev/null | grep -q '304 Not Changed' && pass || fail
+printf 'GET / HTTP/1.0\r\nIf-Modified-Since: Thursday, 27-Feb-30 12:12:12 GMT\r\n\r\n' | $HTTPD 2>/dev/null | grep -q 'HTTP/1.. 304 ' && pass || fail
 
 title "ANSI C Date"
-printf 'GET / HTTP/1.0\r\nIf-Modified-Since: Sun Feb 27 12:12:12 2030\r\n\r\n' | $HTTPD 2>/dev/null | grep -q '304 Not Changed' && pass || fail
-
-title "No trailing slash"
-printf 'GET /empty HTTP/1.0\r\n\r\n' | $HTTPD 2>/dev/null | d | grep -q '301 Redirect#%.*Location: /empty/#%' && pass || fail
+printf 'GET / HTTP/1.0\r\nIf-Modified-Since: Sun Feb 27 12:12:12 2030\r\n\r\n' | $HTTPD 2>/dev/null | grep -q 'HTTP/1.. 304 ' && pass || fail
 
 
 
@@ -120,20 +138,36 @@ H "Directory indexing"
 title "Basic index"
 printf 'GET /empty/ HTTP/1.0\r\n\r\n' | $HTTPD_IDX 2>/dev/null | d | grep -Fq '<h1>Directory Listing: /empty/</h1><pre><a href="../">Parent Directory</a>%</pre>' && pass || fail
 
+title "Hidden file"
+printf 'GET /subdir/ HTTP/1.0\r\n\r\n' | $HTTPD_IDX 2>/dev/null | grep -q 'hidden' && fail || pass
+
+
 
 H "CGI"
 
 title "Basic CGI"
-printf 'GET /a.cgi HTTP/1.0\r\n\r\n' | $HTTPD_CGI 2>/dev/null | d | grep -q 'HTTP/1.0 200 OK#%Server: .*#%Connection: close#%Pragma: no-cache#%Content-type: text/plain#%#%james%' && pass || fail
+printf 'GET /a.cgi HTTP/1.0\r\n\r\n' | \
+    $HTTPD_CGI 2>/dev/null | d | grep -Eq 'HTTP/1.0 200 OK#%Server: .*#%Connection: close#%Pragma: no-cache#%Content-type: text/plain#%#%.*%GATEWAY_INTERFACE=.?CGI/1.1.?%' && pass || fail
+
+title "REQUEST_METHOD"
+printf 'GET /a.cgi HTTP/1.0\r\n\r\n' | \
+    $HTTPD_CGI 2>/dev/null | grep -Eq 'REQUEST_METHOD=.?GET.?$' && pass || fail
 
 title "GET with arguments"
-printf 'GET /a.cgi?foo HTTP/1.0\r\n\r\n' | $HTTPD_CGI 2>/dev/null | d | grep -q 'HTTP/1.0 200 OK#%Server: .*#%Connection: close#%Pragma: no-cache#%Content-type: text/plain#%#%foo%' && pass || fail
+printf 'GET /a.cgi?foo HTTP/1.0\r\n\r\n' | \
+    $HTTPD_CGI 2>/dev/null | grep -Eq 'QUERY_STRING=.?foo.?$' && pass || fail
+
+title "GET with complex args"
+printf 'GET /a.cgi?t=New+Mexico+Land+Of+Enchantment&s=LG8+LV32+R4+G32+LG32+Y4+LG4 HTTP/1.0\r\n\r\n' | \
+    $HTTPD_CGI 2>/dev/null | d | grep -Fq 't=New+Mexico' && pass || fail
 
 title "POST"
-printf 'POST /a.cgi HTTP/1.0\r\nContent-Type: moo\r\nContent-Length: 3\r\n\r\narf' | $HTTPD_CGI 2>/dev/null | d | grep -q 't:moo%v:arf$' && pass || fail
+printf 'POST /a.cgi HTTP/1.0\r\nContent-Type: moo\r\nContent-Length: 3\r\n\r\narf' | \
+    $HTTPD_CGI 2>/dev/null | d | grep -Eq '%CONTENT_LENGTH=.?3.?%CONTENT_TYPE=.?moo.?%' && pass || fail
 
 title "PATH_INFO"
-printf 'GET /a.cgi/merf HTTP/1.0\r\n\r\n' | $HTTPD_CGI 2>/dev/null | grep -q '200' && pass || fail
+printf 'GET /a.cgi/merf HTTP/1.0\r\n\r\n' | $HTTPD_CGI 2>/dev/null | grep -q '^PATH_INFO=/merf$' && pass || fail
+
 
 
 H "fnord bugs"

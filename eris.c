@@ -520,7 +520,7 @@ handle_request()
 
     if (docgi) {
         p[-2] = 0;
-        setenv("REQUEST_METHOD", p, 1);
+        setenv("REQUEST_METHOD", request, 1);
     }
 
     /* Interpret path into fspath. */
@@ -593,8 +593,10 @@ handle_request()
     /* Read header fields */
     {
         char  *base = buf;
+        char  *lastchar = base + (sizeof buf) - 2;
         int    nheaders = 0;
 
+        *lastchar = 0;
         while (1) {
             char   *cgi_name = base;
             char   *p;
@@ -616,17 +618,20 @@ handle_request()
             if (NULL == fgets(p, plen, stdin)) {
                 badrequest(500, "OS Error", "OS error reading headers");
             }
+            if (*lastchar) {
+                badrequest(431, "Request Header Too Large", "An HTTP header field was too large");
+            }
 
             len = extract_header_field(p, &val, 1);
             if (! len) {
                 /* blank line */
                 break;
             }
-
-            name = p;
             if (! val) {
                 badrequest(400, "Invalid header", "Unable to parse header block");
             }
+
+            name = p;
 
             /* Set up CGI environment variables */
             if (docgi) {
