@@ -181,7 +181,7 @@ not_found()
 
     header(404, "Not Found");
     printf("Content-Type: text/html\r\n");
-    printf("Content-Length: %d\r\n", sizeof msg);
+    printf("Content-Length: %lu\r\n", sizeof msg);
     printf("\r\n");
     printf("%s\n", msg);    /* sizeof msg includes the NULL */
     dolog(404, sizeof msg);
@@ -541,7 +541,7 @@ handle_request()
                         badrequest(505, "Version Not Supported", "HTTP/0.9 not supported");
                     case '?':
                         query_string = p + 1;
-                        break;
+                        continue;
                     case '.':
                         if (p[-1] == '/') {
                             c = ':';

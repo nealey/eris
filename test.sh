@@ -127,7 +127,7 @@ title "Basic CGI"
 printf 'GET /a.cgi HTTP/1.0\r\n\r\n' | $HTTPD_CGI 2>/dev/null | d | grep -q 'HTTP/1.0 200 OK#%Server: .*#%Connection: close#%Pragma: no-cache#%Content-type: text/plain#%#%james%' && pass || fail
 
 title "GET with arguments"
-printf 'GET /a.cgi?foo HTTP/1.0\r\n\r\n' | $HTTPD_CGI 2>/dev/null | d | grep -q 'HTTP/1.0 200 OK#%Server: .*#%Pragma: no-cache#%Connection: close#%Content-type: text/plain#%#%foo%' && pass || fail
+printf 'GET /a.cgi?foo HTTP/1.0\r\n\r\n' | $HTTPD_CGI 2>/dev/null | d | grep -q 'HTTP/1.0 200 OK#%Server: .*#%Connection: close#%Pragma: no-cache#%Content-type: text/plain#%#%foo%' && pass || fail
 
 title "POST"
 printf 'POST /a.cgi HTTP/1.0\r\nContent-Type: moo\r\nContent-Length: 3\r\n\r\narf' | $HTTPD_CGI 2>/dev/null | d | grep -q 't:moo%v:arf$' && pass || fail
