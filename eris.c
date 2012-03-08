@@ -102,7 +102,6 @@ char            stdout_buf[BUFFER_SIZE];
 #include "strings.c"
 #include "mime.c"
 #include "time.c"
-#include "cgi.c"
 
 /*
  * TCP_CORK is a Linux extension to work around a TCP problem.
@@ -172,6 +171,8 @@ badrequest(long code, const char *httpcomment, const char *message)
 
     exit(0);
 }
+
+#include "cgi.c"
 
 void
 not_found()
@@ -406,12 +407,6 @@ serve_idx(int fd, char *path)
     }
     printf("</pre></body></html>");
     fflush(stdout);
-}
-
-void
-serve_cgi(char *path)
-{
-    DUMP_s(path);
 }
 
 void
