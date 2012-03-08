@@ -181,7 +181,7 @@ not_found()
 
     header(404, "Not Found");
     printf("Content-Type: text/html\r\n");
-    printf("Content-Length: %lu\r\n", sizeof msg);
+    printf("Content-Length: %lu\r\n", (unsigned long) sizeof msg);
     printf("\r\n");
     printf("%s\n", msg);    /* sizeof msg includes the NULL */
     dolog(404, sizeof msg);
