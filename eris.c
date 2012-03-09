@@ -75,9 +75,9 @@ int             portappend = 0;
 /* Variables that persist between requests */
 int             cwd;
 int             keepalive = 0;
-char           *remote_ip = NULL;
-char           *remote_port = NULL;
-char           *remote_ident = NULL;
+char            remote_ip[60] = {0};
+char            remote_port[10] = {0};
+char            remote_ident[80] = {0};
 
 /*
  * Things that are really super convenient to have globally.
@@ -205,6 +205,7 @@ get_ucspi_env()
     if (ucspi) {
         int             protolen = strlen(ucspi);
         char            buf[80];
+        char           *p;
 
         if (protolen > 20) {
             return;
@@ -212,13 +213,16 @@ get_ucspi_env()
         strcpy(buf, ucspi);
 
         strcpy(buf + protolen, "REMOTEIP");
-        remote_ip = getenv(buf);
+        p = getenv(buf);
+        strncpy(remote_ip, p, sizeof remote_ip);
 
         strcpy(buf + protolen, "REMOTEPORT");
-        remote_port = getenv(buf);
+        p = getenv(buf);
+        strncpy(remote_port, p, sizeof remote_port);
 
         strcpy(buf + protolen, "REMOTEINFO");
-        remote_ident = getenv(buf);
+        p = getenv(buf);
+        strncpy(remote_ident, p, sizeof remote_ident);
     }
 }
 

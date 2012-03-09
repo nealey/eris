@@ -166,8 +166,10 @@ printf 'POST /a.cgi HTTP/1.0\r\nContent-Type: moo\r\nContent-Length: 3\r\n\r\nar
     $HTTPD_CGI 2>/dev/null | d | grep -Eq '%CONTENT_LENGTH=.?3.?%CONTENT_TYPE=.?moo.?%' && pass || fail
 
 title "PATH_INFO"
-printf 'GET /a.cgi/merf HTTP/1.0\r\n\r\n' | $HTTPD_CGI 2>/dev/null | grep -q '^PATH_INFO=/merf$' && pass || fail
+printf 'GET /a.cgi/merf HTTP/1.0\r\n\r\n' | $HTTPD_CGI 2>/dev/null | grep -Eq '^PATH_INFO=.?/merf.?$' && pass || fail
 
+title "SERVER_PROTOCOL"
+printf 'GET /a.cgi HTTP/1.0\r\n\r\n' | $HTTPD_CGI 2>/dev/null | d | grep -Eq '%SERVER_PROTOCOL=.?HTTP/1.0[^#%]?%[^#%]' && pass || fail
 
 
 H "fnord bugs"
