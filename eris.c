@@ -75,9 +75,9 @@ int             portappend = 0;
 /* Variables that persist between requests */
 int             cwd;
 int             keepalive = 0;
-char            remote_ip[60] = {0};
-char            remote_port[10] = {0};
-char            remote_ident[80] = {0};
+char           *remote_ip = NULL;
+char           *remote_port = NULL;
+char           *remote_ident = NULL;
 
 /*
  * Things that are really super convenient to have globally.
@@ -214,15 +214,21 @@ get_ucspi_env()
 
         strcpy(buf + protolen, "REMOTEIP");
         p = getenv(buf);
-        strncpy(remote_ip, p, sizeof remote_ip);
+        if (p) {
+            remote_ip = strdup(p);
+        }
 
         strcpy(buf + protolen, "REMOTEPORT");
         p = getenv(buf);
-        strncpy(remote_port, p, sizeof remote_port);
+        if (p) {
+            remote_port = strdup(p);
+        }
 
         strcpy(buf + protolen, "REMOTEINFO");
         p = getenv(buf);
-        strncpy(remote_ident, p, sizeof remote_ident);
+        if (p) {
+            remote_ident = strdup(p);
+        }
     }
 }
 
@@ -599,6 +605,7 @@ handle_request()
         keepalive = 0;
     }
     if (docgi) {
+        p[8] = 0;
         env("SERVER_PROTOCOL", p);
     }
 
