@@ -172,6 +172,14 @@ badrequest(long code, const char *httpcomment, const char *message)
     exit(0);
 }
 
+void
+env(const char *k, const char *v)
+{
+    if (v) {
+        setenv(k, v, 1);
+    }
+}
+
 #include "cgi.c"
 
 void
@@ -467,7 +475,7 @@ find_serve_file(char *relpath)
 
             if ((p = strstr(relpath, ".cgi"))) {
                 p += 4;
-                setenv("PATH_INFO", p, 1);
+                env("PATH_INFO", p);
                 *p = 0;
                 if (! stat(relpath, &st)) {
                     close(fd);
@@ -520,7 +528,7 @@ handle_request()
 
     if (docgi) {
         p[-2] = 0;
-        setenv("REQUEST_METHOD", request, 1);
+        env("REQUEST_METHOD", request);
     }
 
     /* Interpret path into fspath. */
@@ -569,7 +577,7 @@ handle_request()
         *(p++) = 0;         /* NULL-terminate path */
 
         if (docgi && query_string) {
-            setenv("QUERY_STRING", query_string, 1);
+            env("QUERY_STRING", query_string);
         }
     }
 
@@ -587,7 +595,7 @@ handle_request()
         keepalive = 0;
     }
     if (docgi) {
-        setenv("SERVER_PROTOCOL", p, 1);
+        env("SERVER_PROTOCOL", p);
     }
 
     /* Read header fields */
@@ -635,7 +643,7 @@ handle_request()
 
             /* Set up CGI environment variables */
             if (docgi) {
-                setenv(cgi_name, val, 1);
+                env(cgi_name, val);
             }
 
             /* By default, re-use buffer space */

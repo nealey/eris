@@ -7,20 +7,20 @@ sigchld(int sig)
 static void
 cgi_child(const char *relpath)
 {
-    setenv("GATEWAY_INTERFACE", "CGI/1.1", 1);
-    setenv("SERVER_SOFTWARE", FNORD, 1);
-    setenv("REQUEST_URI", path, 1);
-    setenv("SERVER_NAME", host, 1);
-    setenv("SCRIPT_NAME", relpath, 1);
-    setenv("REMOTE_ADDR", remote_ip, 1);
-    setenv("REMOTE_PORT", remote_port, 1);
-    setenv("REMOTE_IDENT", remote_ident, 1);
+    env("GATEWAY_INTERFACE", "CGI/1.1");
+    env("SERVER_SOFTWARE", FNORD);
+    env("REQUEST_URI", path);
+    env("SERVER_NAME", host);
+    env("SCRIPT_NAME", relpath);
+    env("REMOTE_ADDR", remote_ip);
+    env("REMOTE_PORT", remote_port);
+    env("REMOTE_IDENT", remote_ident);
     if (content_length) {
         char cl[20];
 
         snprintf(cl, sizeof cl, "%llu", (unsigned long long) content_length);
-        setenv("CONTENT_LENGTH", cl, 1);
-        setenv("CONTENT_TYPE", content_type, 1);
+        env("CONTENT_LENGTH", cl);
+        env("CONTENT_TYPE", content_type);
     }
 
     execl(relpath, relpath, NULL);
