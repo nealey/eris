@@ -94,7 +94,7 @@ title "Bare newline"
 printf 'GET / HTTP/1.0\n\n' | $HTTPD 2>/dev/null | grep -q 'james' && pass || fail
 
 title "No trailing slash"
-printf 'GET /empty HTTP/1.0\r\n\r\n' | $HTTPD 2>/dev/null | d | grep -q '301 Redirect#%.*Location: /empty/#%' && pass || fail
+printf 'GET /empty HTTP/1.0\r\n\r\n' | $HTTPD 2>/dev/null | d | grep -q '301 Redirect#%.*Location: /empty/#%#%' && pass || fail
 
 title "Logging /"
 (printf 'GET / HTTP/1.1\r\nHost: host\r\n\r\n' | 

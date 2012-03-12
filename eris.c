@@ -424,7 +424,6 @@ serve_idx(int fd, char *path)
         printf("</a>\n");
     }
     printf("</pre></body></html>");
-    fflush(stdout);
 }
 
 void
@@ -444,7 +443,7 @@ find_serve_file(char *relpath)
             /* Redirect if it doesn't end with / */
             if (! endswith(path, "/")) {
                 header(301, "Redirect");
-                printf("Location: %s/", path);
+                printf("Location: %s/\r\n", path);
                 eoh();
                 return;
             }
@@ -733,6 +732,7 @@ handle_request()
     /* Serve the file */
     cork(1);
     find_serve_file(fspath);
+    fflush(stdout);
     cork(0);
 
     return;
