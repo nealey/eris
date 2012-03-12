@@ -37,6 +37,7 @@ d () {
 mkdir -p default
 echo james > default/index.html
 touch default/a
+
 cat <<'EOD' > default/a.cgi
 #! /bin/sh
 echo 'Content-type: text/plain'
@@ -44,6 +45,16 @@ echo
 set | sort
 EOD
 chmod +x default/a.cgi
+
+cat <<'EOD' > default/mongo.cgi
+#! /bin/sh
+echo 'Content-type: application/octet-stream'
+echo
+dd if=/dev/zero bs=1000 count=800 2>/dev/null
+echo 'james'
+EOD
+chmod +x default/mongo.cgi
+
 mkdir -p default/empty
 mkdir -p default/subdir
 touch default/subdir/a
@@ -171,6 +182,8 @@ printf 'GET /a.cgi/merf HTTP/1.0\r\n\r\n' | $HTTPD_CGI 2>/dev/null | grep -Eq '^
 title "SERVER_PROTOCOL"
 printf 'GET /a.cgi HTTP/1.0\r\n\r\n' | $HTTPD_CGI 2>/dev/null | d | grep -Eq '%SERVER_PROTOCOL=.?HTTP/1.0[^#%]?%[^#%]' && pass || fail
 
+title "Large response"
+printf 'GET /mongo.cgi HTTP/1.0\r\n\r\n' | $HTTPD_CGI 2>/dev/null | grep -q james && pass || fail
 
 H "fnord bugs"
 
@@ -186,6 +199,7 @@ printf 'GET /a.cgi HTTP/1.0\r\n\r\n' | $HTTPD_CGI 2>/dev/null | d | grep -q '#%#
 title "Multiple requests in one packet"
 printf 'GET / HTTP/1.1\r\nHost: a\r\nConnection: keep-alive\r\n\r\nGET / HTTP/1.1\r\nHost: a\r\nConnection: keep-alive\r\n\r\n' | $HTTPD 2>/dev/null | grep -c '^HTTP/1.' | grep -q 2 && pass || fail
 
+## Skip: eris ignores Accept header (fnord does too, as this bug demonstrates)
 # 4. Should return 406 Not Acceptable; instead ignores Accept header
 #title "Accept header"
 #printf 'GET / HTTP/1.0\r\nAccept: nothing\r\n\r\n' | $HTTPD 2>/dev/null | grep 406 && pass || fail
@@ -196,6 +210,7 @@ title "Second MIME-Type"
  ls / > /dev/null    # Delay required to work around test #3
  printf 'GET /a HTTP/1.1\r\nHost: a\r\nConnection: keep-alive\r\n\r\n') | $HTTPD 2>/dev/null | grep -q 'text/plain\|application/octet-stream' && pass || fail
 
+## Skip: eris doesn't allow POST to static HTML
 # 6. Should consume POST data; instead tries to read POST data as second request
 #title "POST to static HTML"
 #(printf 'POST / HTTP/1.1\r\nHost: a\r\nConnection: keep-alive\r\nContent-Type: text/plain\r\nContent-Length: 1\r\n\r\n';
@@ -207,6 +222,14 @@ title "HTTP/1.1 default keepalive"
 (printf 'GET / HTTP/1.1\r\nHost: a\r\n\r\n'
  ls / >/dev/null
  printf 'GET / HTTP/1.1\r\nHost: a\r\n\r\n') | $HTTPD 2>/dev/null | grep -c '^HTTP/' | grep -q 2 && pass || fail
+
+# 8. Should parse "Thursday"; instead assumes all day names are 6 characters long
+title "RFC 850 Date"
+printf 'GET / HTTP/1.0\r\nIf-Modified-Since: Thursday, 27-Feb-30 12:12:12 GMT\r\n\r\n' | $HTTPD 2>/dev/null | grep -q '304 Not Changed' && pass || fail
+
+# 9. Should set PATH_INFO to /; instead sets it to /index.html
+title "PATH_INFO=/"
+printf 'GET /a.cgi/ HTTP/1.0\r\n\r\n' | $HTTPD_CGI 2>/dev/null | grep -Eq 'PATH_INFO=.?/.?$' && pass || fail
 
 echo
 echo

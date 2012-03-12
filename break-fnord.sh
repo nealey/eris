@@ -64,8 +64,7 @@ if [ ! -d default ]; then
 #! /bin/sh
 echo 'Content-type: text/plain'
 ls / > /dev/null   # delay a little
-echo
-echo james
+set
 EOD
     chmod +x default/a.cgi
     mkdir empty:80
@@ -117,6 +116,10 @@ title "HTTP/1.1 default keepalive"
 # 8. Should parse "Thursday"; instead assumes all day names are 6 characters long
 title "RFC 850 Date"
 printf 'GET / HTTP/1.0\r\nIf-Modified-Since: Thursday, 27-Feb-30 12:12:12 GMT\r\n\r\n' | $HTTPD 2>/dev/null | grep -q '304 Not Changed' && pass || fail
+
+# 9. Should set PATH_INFO to /; instead sets it to /index.html
+title "PATH_INFO=/"
+printf 'GET /a.cgi/ HTTP/1.0\r\n\r\n' | $HTTPD_CGI 2>/dev/null | grep -Eq 'PATH_INFO=.?/.?$' && pass || fail
 
 cat <<EOD
 -----------------------------------------
