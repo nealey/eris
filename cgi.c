@@ -166,7 +166,6 @@ serve_cgi(char *relpath)
 
         alarm(CGI_TIMEOUT);
         cgi_parent(cin[0], cout[1], 0);
-        alarm(0);
 
         exit(0);
     } else {

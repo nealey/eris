@@ -48,11 +48,17 @@
 /* Wait this long (seconds) for a valid HTTP request */
 #define READTIMEOUT 2
 
-/* Wait this long trying to write out the response */
-#define WRITETIMEOUT 20
+/* Wait this long (seconds) for a non-file send to complete */
+#define WRITETIMEOUT 10
+
+/* Quit if we can't write at least this many bytes per second */
+#define MIN_WRITE_RATE 2560
 
 /* Wait this long for CGI to complete */
 #define CGI_TIMEOUT	(5*60)
+
+/* How long each sendfile call can take */
+#define SENDFILE_TIMEOUT ((int)(SIZE_MAX / MIN_WRITE_RATE))
 
 /* Maximum size of a request header (the whole block) */
 #define MAXHEADERLEN 8192
@@ -349,6 +355,7 @@ serve_file(int fd, char *filename, struct stat *st)
         size_t count = min(remain, SIZE_MAX);
         ssize_t sent;
 
+        alarm(SENDFILE_TIMEOUT);
         sent = sendfile(1, fd, &range_start, count);
         if (-1 == sent) {
             fake_sendfile(1, fd, &range_start, count);
@@ -730,6 +737,7 @@ handle_request()
     }
 
     /* Serve the file */
+    alarm(WRITETIMEOUT);
     cork(1);
     find_serve_file(fspath);
     fflush(stdout);
