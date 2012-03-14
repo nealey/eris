@@ -319,7 +319,7 @@ serve_file(int fd, char *filename, struct stat *st)
         badrequest(405, "Method Not Supported", "POST is not supported by this URL");
     }
 
-    if (st->st_mtime < ims) {
+    if (st->st_mtime <= ims) {
         header(304, "Not Changed");
         eoh();
         return;

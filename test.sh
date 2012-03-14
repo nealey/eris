@@ -130,6 +130,10 @@ H "If-Modified-Since"
 title "Has been modified"
 printf 'GET / HTTP/1.0\r\nIf-Modified-Since: Sun, 27 Feb 1980 12:12:12 GMT\r\n\r\n' | $HTTPD 2>/dev/null | grep -q 'HTTP/1.. 200 ' && pass || fail
 
+title "Exact same date"
+ims=$(printf 'GET / HTTP/1.0\r\n\r\n' | $HTTPD 2>/dev/null | awk -F ': ' '/Last-Modified/ {print $2;}')
+printf 'GET / HTTP/1.0\r\nIf-Modified-Since: %s\r\n\r\n' "$ims" | $HTTPD 2>/dev/null | grep -q 'HTTP/1.. 304 ' && pass || fail
+
 title "RFC 822 Date"
 printf 'GET / HTTP/1.0\r\nIf-Modified-Since: Sun, 27 Feb 2030 12:12:12 GMT\r\n\r\n' | $HTTPD 2>/dev/null | grep -q 'HTTP/1.. 304 ' && pass || fail
 
