@@ -4,6 +4,14 @@ sigchld(int sig)
     while (waitpid(0, NULL, WNOHANG) > 0);
 }
 
+void
+sigalarm_cgi(int sig)
+{
+    /* send this out regardless of whether we've already sent a header,
+     * to maybe help with debugging */
+    badrequest(504, "Gateway Timeout", "The CGI is being too slow.");
+}
+
 static void
 cgi_child(const char *relpath)
 {
@@ -165,6 +173,7 @@ serve_cgi(char *relpath)
         keepalive = 0;
 
         alarm(CGI_TIMEOUT);
+        signal(SIGALRM, sigalarm_cgi);
         cgi_parent(cin[0], cout[1], 0);
 
         exit(0);

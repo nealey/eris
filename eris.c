@@ -98,6 +98,7 @@ char *path;
 int   http_version;
 char *content_type;
 size_t content_length;
+int   header_sent;
 off_t range_start, range_end;
 time_t ims = 0;
 
@@ -143,6 +144,7 @@ dolog(int code, off_t len)
 void
 header(unsigned int code, const char *httpcomment)
 {
+    header_sent = 1;
     printf("HTTP/1.%d %u %s\r\n", http_version, code, httpcomment);
     printf("Server: " FNORD "\r\n");
     printf("Connection: %s\r\n", keepalive?"keep-alive":"close");
@@ -519,6 +521,7 @@ handle_request()
     range_end = 0;
     content_type = NULL;
     content_length = 0;
+    header_sent = 0;
 
     alarm(READTIMEOUT);
 
@@ -746,6 +749,14 @@ handle_request()
     return;
 }
 
+void
+sigalarm(int sig)
+{
+    if (! header_sent) {
+        badrequest(408, "Request Timeout", "You are being too slow.");
+    }
+}
+
 int
 main(int argc, char *argv[], const char *const *envp)
 {
@@ -756,6 +767,7 @@ main(int argc, char *argv[], const char *const *envp)
     setbuffer(stdout, stdout_buf, sizeof stdout_buf);
 
     signal(SIGPIPE, SIG_IGN);
+    signal(SIGALRM, sigalarm);
     get_ucspi_env();
 
     while (1) {

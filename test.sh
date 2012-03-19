@@ -124,7 +124,6 @@ title "Too many headers"
  printf '\r\n') | $HTTPD 2>/dev/null | grep -q 'HTTP/1.. 431 ' && pass || fail
 
 
-
 H "If-Modified-Since"
 
 title "Has been modified"
@@ -188,6 +187,15 @@ printf 'GET /a.cgi HTTP/1.0\r\n\r\n' | $HTTPD_CGI 2>/dev/null | d | grep -Eq '%S
 
 title "Large response"
 printf 'GET /mongo.cgi HTTP/1.0\r\n\r\n' | $HTTPD_CGI 2>/dev/null | grep -q james && pass || fail
+
+
+
+H "Timeouts"
+
+title "Read timeout"
+(sleep 2.1; echo) | $HTTPD 2>&1 | grep -c 'HTTP/1.. 408 \|.null. 408' | grep -q 2 && pass || fail
+
+
 
 H "fnord bugs"
 
