@@ -193,7 +193,7 @@ printf 'GET /mongo.cgi HTTP/1.0\r\n\r\n' | $HTTPD_CGI 2>/dev/null | grep -q jame
 H "Timeouts"
 
 title "Read timeout"
-(sleep 2.1; echo) | $HTTPD 2>&1 | grep -c 'HTTP/1.. 408 \|.null. 408' | grep -q 2 && pass || fail
+(sleep 2.1; printf 'GET / HTTP/1.0\r\n\r\n') | $HTTPD 2>/dev/null | grep -q '.' && fail || pass
 
 
 
