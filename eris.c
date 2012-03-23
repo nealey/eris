@@ -303,7 +303,7 @@ fake_sendfile(int out_fd, int in_fd, off_t *offset, size_t count)
         m = write(out_fd, buf, l);
         if (-1 == m) {
             /* ALSO screwed. */
-            fprintf(stderr, "Unable to write to client.  Dying.\n");
+            fprintf(stderr, "Unable to write to client: %m (req %s).  Dying.\n", path);
             exit(0);
         }
         l -= m;
