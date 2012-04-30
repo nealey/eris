@@ -1,10 +1,6 @@
 #! /bin/sh
 
 ## Breaking fnord 1.10
-##
-## Run this as "HTTPD=../eris ./break-fnord.sh" if you'd like to
-## run these tests against a built eris HTTPD.  It will fail the
-## Accept test since eris ignores this.
 
 if [ "$1" = "clean" ]; then
     rm -rf fnord-1.10
@@ -15,10 +11,6 @@ case ${HTTPD:=./fnord} in
     *fnord)
         : ${HTTPD_IDX:=$HTTPD-idx}
         : ${HTTPD_CGI:=$HTTPD-cgi}
-        ;;
-    *eris)
-        : ${HTTPD_IDX:=$HTTPD -d}
-        : ${HTTPD_CGI:=$HTTPD -c}
         ;;
 esac
 
@@ -54,6 +46,8 @@ if [ ! -f fnord-1.10/httpd.c ]; then
 fi
 
 cd fnord-1.10
+
+# Comment this out if you want to build with diet libc
 make DIET=
 
 if [ ! -d default ]; then
