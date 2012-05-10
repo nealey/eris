@@ -550,10 +550,11 @@ handle_request()
     /* Interpret path into fspath. */
     path = p - 1;
     {
-        FILE *f = fmemopen(fspath, sizeof fspath, "w");
+        char *fsp = fspath;
         char *query_string = NULL;
         
-        fprintf(f, "./");
+        *(fsp++) = '.';
+        *(fsp++) = '/';
         for (; *p != ' '; p += 1) {
             if (! query_string) {
                 char c = *p;
@@ -584,11 +585,12 @@ handle_request()
                         break;
                 }
 
-                fputc(c, f);
+                if (fsp - fspath + 1 < sizeof fspath) {
+                    *(fsp++) = c;
+                }
             }
         }
-        fputc(0, f);
-        fclose(f);
+        *fsp = 0;
 
         *(p++) = 0;         /* NULL-terminate path */
 

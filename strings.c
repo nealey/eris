@@ -116,15 +116,10 @@ void
 url_esc(FILE *f, char *s)
 {
     for (; *s; s += 1) {
-        switch (*s) {
-            case '%':
-            case 127:
-            case -127 ... 31:
-                fprintf(f, "%%%02x", *s);
-                break;
-            default:
-                fputc(*s, f);
-                break;
+        if ((*s == '%') || (*s == 127) || (*s < 31)) {
+            fprintf(f, "%%%02x", *s);
+        } else {
+            fputc(*s, f);
         }
     }
 }
