@@ -20,8 +20,7 @@ cgi_child(const char *relpath)
     env("REQUEST_URI", path);
     env("SERVER_NAME", host);
     env("SCRIPT_NAME", relpath);
-    env("REMOTE_ADDR", remote_ip);
-    env("REMOTE_PORT", remote_port);
+    env("REMOTE_ADDR", remote_addr);
     env("REMOTE_IDENT", remote_ident);
     if (content_length) {
         char cl[20];

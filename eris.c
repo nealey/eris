@@ -81,8 +81,7 @@ int             portappend = 0;
 /* Variables that persist between requests */
 int             cwd;
 int             keepalive = 0;
-char           *remote_ip = NULL;
-char           *remote_port = NULL;
+char           *remote_addr = NULL;
 char           *remote_ident = NULL;
 
 /*
@@ -137,7 +136,7 @@ dolog(int code, off_t len)
     sanitize(refer);
 
     fprintf(stderr, "%s %d %lu %s %s %s %s\n",
-            remote_ip, code, (unsigned long) len, host, user_agent, refer, path);
+            remote_addr, code, (unsigned long) len, host, user_agent, refer, path);
 }
 
 void
@@ -202,6 +201,14 @@ not_found()
     fflush(stdout);
 }
 
+char *
+proto_getenv(char *proto, char *name)
+{
+    char buf[80];
+
+    snprintf(buf, sizeof buf, "%s%s", proto, name);
+    return getenv(buf);
+}
 
 void
 get_ucspi_env()
@@ -209,30 +216,24 @@ get_ucspi_env()
     char           *ucspi = getenv("PROTO");
 
     if (ucspi) {
-        int             protolen = strlen(ucspi);
-        char            buf[80];
-        char           *p;
+        char *p;
 
-        if (protolen > 20) {
-            return;
-        }
-        strcpy(buf, ucspi);
+        /* Busybox, as usual, has the right idea */
+        if ((p = proto_getenv(ucspi, "REMOTEADDR"))) {
+            remote_addr = strdup(p);
+        } else {
+            char *ip   = proto_getenv(ucspi, "REMOTEIP");
+            char *port = proto_getenv(ucspi, "REMOTEPORT");
 
-        strcpy(buf + protolen, "REMOTEIP");
-        p = getenv(buf);
-        if (p) {
-            remote_ip = strdup(p);
-        }
+            if (ip) {
+                char buf[80];
 
-        strcpy(buf + protolen, "REMOTEPORT");
-        p = getenv(buf);
-        if (p) {
-            remote_port = strdup(p);
+                snprintf(buf, sizeof buf, "%s:%s", ip, port);
+                remote_addr = strdup(buf);
+            }
         }
 
-        strcpy(buf + protolen, "REMOTEINFO");
-        p = getenv(buf);
-        if (p) {
+        if ((p = proto_getenv(ucspi, "REMOTEINFO"))) {
             remote_ident = strdup(p);
         }
     }
