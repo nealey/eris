@@ -98,11 +98,15 @@ printf 'GET /empty HTTP/1.0\r\n\r\n' | $HTTPD 2>/dev/null | d | grep -q '301 Red
 
 title "Logging /"
 (printf 'GET / HTTP/1.1\r\nHost: host\r\n\r\n' | 
-    PROTO=TCP TCPREMOTEPORT=1234 TCPREMOTEIP=10.0.0.2 $HTTPD >/dev/null) 2>&1 | grep -q '^10.0.0.2 200 6 host (null) (null) /$' && pass || fail
+    PROTO=TCP TCPREMOTEPORT=1234 TCPREMOTEIP=10.0.0.2 $HTTPD >/dev/null) 2>&1 | grep -q '^10.0.0.2:1234 200 6 host (null) (null) /$' && pass || fail
 
 title "Logging /index.html"
 (printf 'GET /index.html HTTP/1.1\r\nHost: host\r\n\r\n' | 
-    PROTO=TCP TCPREMOTEPORT=1234 TCPREMOTEIP=10.0.0.2 $HTTPD >/dev/null) 2>&1 | grep -q '^10.0.0.2 200 6 host (null) (null) /index.html$' && pass || fail
+    PROTO=TCP TCPREMOTEPORT=1234 TCPREMOTEIP=10.0.0.2 $HTTPD >/dev/null) 2>&1 | grep -q '^10.0.0.2:1234 200 6 host (null) (null) /index.html$' && pass || fail
+
+title "Logging busybox"
+(printf 'GET /index.html HTTP/1.1\r\nHost: host\r\n\r\n' | 
+    PROTO=TCP TCPREMOTEADDR=[::1]:8765 $HTTPD >/dev/null) 2>&1 | grep -Fxq '[::1]:8765 200 6 host (null) (null) /index.html' && pass || fail
 
 
 
@@ -144,6 +148,9 @@ printf 'GET / HTTP/1.0\r\nIf-Modified-Since: Thursday, 27-Feb-30 12:12:12 GMT\r\
 
 title "ANSI C Date"
 printf 'GET / HTTP/1.0\r\nIf-Modified-Since: Sun Feb 27 12:12:12 2030\r\n\r\n' | $HTTPD 2>/dev/null | grep -q 'HTTP/1.. 304 ' && pass || fail
+
+title "ims persist"
+printf 'GET / HTTP/1.0\r\nIf-Modified-Since: %s\r\n\r\nGET / HTTP/1.0\r\n\r\n' | $HTTPD 2>/dev/null | d | grep -q 'HTTP/1.. 304.*HTTP/1.. 200'
 
 
 

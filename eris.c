@@ -98,7 +98,7 @@ int   http_version;
 char *content_type;
 size_t content_length;
 off_t range_start, range_end;
-time_t ims = 0;
+time_t ims;
 
 
 #define BUFFER_SIZE 8192
@@ -512,6 +512,7 @@ handle_request()
     char  buf[MAXHEADERLEN];
     char *p;
 
+    /* Initialize globals */
     host = NULL;
     user_agent = NULL;
     refer = NULL;
@@ -520,6 +521,7 @@ handle_request()
     range_end = 0;
     content_type = NULL;
     content_length = 0;
+    ims = 0;
 
     alarm(READTIMEOUT);
 
