@@ -410,7 +410,7 @@ serve_idx(int fd, char *path)
         }
 
         if (S_ISDIR(st.st_mode)) {
-            printf("[DIR]            ");
+            printf("[DIR]     ");
         } else if (S_ISLNK(st.st_mode)) {
             ssize_t         len = readlink(de->d_name, symlink, (sizeof symlink) - 1);
 
@@ -418,9 +418,9 @@ serve_idx(int fd, char *path)
                 continue;
             }
             name = symlink;
-            printf("[LNK]            ");        /* symlink */
+            printf("[LNK]     ");        /* symlink */
         } else if (S_ISREG(st.st_mode)) {
-            printf("[   ]  %10llu", (unsigned long long)st.st_size);
+            printf("%10llu", (unsigned long long)st.st_size);
         } else {
             continue;   /* not a file we can provide -> skip */
         }
