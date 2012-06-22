@@ -110,6 +110,13 @@ title "Logging busybox"
 
 
 
+H "Options"
+
+title "-."
+printf 'GET /eris HTTP/1.0\r\n\r\n' | $HTTPD -. 2>/dev/null | grep -q 'HTTP/1.. 200 OK' && pass || fail
+
+
+
 H "Tomfoolery"
 
 title "Non-header"
@@ -150,7 +157,7 @@ title "ANSI C Date"
 printf 'GET / HTTP/1.0\r\nIf-Modified-Since: Sun Feb 27 12:12:12 2030\r\n\r\n' | $HTTPD 2>/dev/null | grep -q 'HTTP/1.. 304 ' && pass || fail
 
 title "ims persist"
-printf 'GET / HTTP/1.0\r\nIf-Modified-Since: %s\r\n\r\nGET / HTTP/1.0\r\n\r\n' | $HTTPD 2>/dev/null | d | grep -q 'HTTP/1.. 304.*HTTP/1.. 200'
+printf 'GET / HTTP/1.1\r\nIf-Modified-Since: %s\r\n\r\nGET / HTTP/1.0\r\n\r\n' "$ims" | $HTTPD 2>/dev/null | d | grep -q 'HTTP/1.. 304.*HTTP/1.. 200' && pass || fail
 
 
 
@@ -214,6 +221,11 @@ printf 'GET / HTTP/1.0\r\nHost: empty\r\n\r\n' | $HTTPD_IDX 2>/dev/null | grep -
 title "CGI output bare newlines"
 printf 'GET /a.cgi HTTP/1.0\r\n\r\n' | $HTTPD_CGI 2>/dev/null | d | grep -q '#%#%' && pass || fail
 
+## Note: fnord gets a pass on this since it only claims to be an HTTP/1.0
+## server.  Eris is not 1.1 compliant either, but it at least tries to fake it.  You
+## should consider how much of HTTP/1.1 you want before deploying either.  In practice,
+## with browsers, both seems sufficient.  Some tools, notably httperf, fail
+## with fnord.
 # 3. Should process both requests; instead drops second
 title "Multiple requests in one packet"
 printf 'GET / HTTP/1.1\r\nHost: a\r\nConnection: keep-alive\r\n\r\nGET / HTTP/1.1\r\nHost: a\r\nConnection: keep-alive\r\n\r\n' | $HTTPD 2>/dev/null | grep -c '^HTTP/1.' | grep -q 2 && pass || fail

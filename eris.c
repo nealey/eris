@@ -75,6 +75,7 @@
 int             doauth = 0;
 int             docgi = 0;
 int             doidx = 0;
+int             nochdir = 0;
 int             redirect = 0;
 int             portappend = 0;
 
@@ -244,7 +245,7 @@ parse_options(int argc, char *argv[])
 {
     int             opt;
 
-    while (-1 != (opt = getopt(argc, argv, "acdhkprv"))) {
+    while (-1 != (opt = getopt(argc, argv, "acdhkprv."))) {
         switch (opt) {
             case 'a':
                 doauth = 1;
@@ -255,6 +256,9 @@ parse_options(int argc, char *argv[])
             case 'd':
                 doidx = 1;
                 break;
+            case '.':
+                nochdir = 1;
+                break;
             case 'p':
                 portappend = 1;
                 break;
@@ -264,6 +268,7 @@ parse_options(int argc, char *argv[])
             case 'v':
                 printf(FNORD "\n");
                 exit(0);
+            case 'h':
             default:
                 fprintf(stderr, "Usage: %s [OPTIONS]\n",
                         argv[0]);
@@ -271,6 +276,7 @@ parse_options(int argc, char *argv[])
                 fprintf(stderr, "-a         Enable authentication\n");
                 fprintf(stderr, "-c         Enable CGI\n");
                 fprintf(stderr, "-d         Enable directory listing\n");
+                fprintf(stderr, "-.         Serve out of ./ (no vhosting)\n");
                 fprintf(stderr, "-p         Append port to hostname directory\n");
                 fprintf(stderr, "-r         Enable symlink redirection\n");
                 fprintf(stderr, "-v         Print version and exit\n");
@@ -711,7 +717,7 @@ handle_request()
     }
 
     /* Try to change into the appropriate directory */
-    {
+    if (! nochdir) {
         char fn[PATH_MAX];
 
         if (host) {
