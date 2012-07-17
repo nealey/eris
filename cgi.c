@@ -83,6 +83,9 @@ cgi_parent(int cin, int cout, int passthru)
                     break;
                 }
                 fwrite(cgiheader, 1, len, stdout);
+
+                /* Naively assume the CGI knows best about sending stuff */
+                fflush(stdout);
                 size += len;
             } else {
                 /* Interpret header fields */
