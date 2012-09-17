@@ -111,7 +111,7 @@ cgi_parent(int cin, int cout, int passthru)
                         if (! header_sent) {
                             if (! strcasecmp(cgiheader, "Location")) {
                                 header(302, "CGI Redirect");
-                                fwrite(cgiheader, 1, cgiheaderlen, stdout);
+                                printf("%s: %s\r\n\r\n", cgiheader, val);
                                 dolog(302, 0);
                                 exit(0);
                             }

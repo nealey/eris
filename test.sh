@@ -55,6 +55,12 @@ echo 'james'
 EOD
 chmod +x default/mongo.cgi
 
+cat <<'EOD' > default/redir.cgi
+#! /bin/sh
+echo "Location: http://example.com/froot"
+EOD
+chmod +x default/redir.cgi
+
 mkdir -p default/empty
 mkdir -p default/subdir
 touch default/subdir/a
@@ -201,6 +207,9 @@ printf 'GET /a.cgi HTTP/1.0\r\n\r\n' | $HTTPD_CGI 2>/dev/null | d | grep -Eq '%S
 
 title "Large response"
 printf 'GET /mongo.cgi HTTP/1.0\r\n\r\n' | $HTTPD_CGI 2>/dev/null | grep -q james && pass || fail
+
+title "Redirect"
+printf 'GET /redir.cgi HTTP/1.0\r\n\r\n' | $HTTPD_CGI 2>/dev/null | grep -Fq 'Location: http://example.com/froot' && pass || fail
 
 
 
