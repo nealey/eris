@@ -61,6 +61,15 @@ echo "Location: http://example.com/froot"
 EOD
 chmod +x default/redir.cgi
 
+cat <<'EOD' > default/status.cgi
+#! /bin/sh
+echo "Status: 300 wat"
+echo "Merf: merf"
+echo
+echo "james"
+EOD
+chmod +x default/status.cgi
+
 mkdir -p default/empty
 mkdir -p default/subdir
 touch default/subdir/a
@@ -79,10 +88,10 @@ echo "IDX:   $HTTPD_IDX  "
 H "Basic tests"
 
 title "GET /index.html"
-printf 'GET /index.html HTTP/1.0\r\n\r\n' | $HTTPD 2>/dev/null | d | grep -q 'HTTP/1.0 200 OK#%Server: [a-z]*/[0-9.]*#%Connection: close#%Content-Type: text/html; charset=UTF-8#%Content-Length: 6#%Last-Modified: ..., .. ... 20.. ..:..:.. GMT#%#%james%' && pass || fail
+printf 'GET /index.html HTTP/1.0\r\n\r\n' | $HTTPD 2>/dev/null | d | grep -q 'HTTP/1.0 200 OK#%Server: [a-z]*/[0-9a-z.]*#%Connection: close#%Content-Type: text/html; charset=UTF-8#%Content-Length: 6#%Last-Modified: ..., .. ... 20.. ..:..:.. GMT#%#%james%' && pass || fail
 
 title "GET /"
-printf 'GET / HTTP/1.0\r\n\r\n' | $HTTPD 2>/dev/null | d | grep -q 'HTTP/1.0 200 OK#%Server: [a-z]*/[0-9.]*#%Connection: close#%Content-Type: text/html; charset=UTF-8#%Content-Length: 6#%Last-Modified: ..., .. ... 20.. ..:..:.. GMT#%#%james%' && pass || fail
+printf 'GET / HTTP/1.0\r\n\r\n' | $HTTPD 2>/dev/null | d | grep -q 'HTTP/1.0 200 OK#%Server: [a-z]*/[0-9a-z.]*#%Connection: close#%Content-Type: text/html; charset=UTF-8#%Content-Length: 6#%Last-Modified: ..., .. ... 20.. ..:..:.. GMT#%#%james%' && pass || fail
 
 title "Keepalive"
 printf 'GET / HTTP/1.1\r\n\r\nGET / HTTP/1.1\r\n\r\n' | $HTTPD 2>/dev/null | grep -c 'james' | grep -q 2 && pass || fail
@@ -211,6 +220,8 @@ printf 'GET /mongo.cgi HTTP/1.0\r\n\r\n' | $HTTPD_CGI 2>/dev/null | grep -q jame
 title "Redirect"
 printf 'GET /redir.cgi HTTP/1.0\r\n\r\n' | $HTTPD_CGI 2>/dev/null | grep -Fq 'Location: http://example.com/froot' && pass || fail
 
+title "Status"
+printf 'GET /status.cgi HTTP/1.0\r\n\r\n' | $HTTPD_CGI 2>/dev/null | d | grep -q '^HTTP/1.0 300 wat#%' && pass || fail
 
 
 H "Timeouts"

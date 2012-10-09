@@ -42,6 +42,7 @@ cgi_parent(int cin, int cout, int passthru)
     FILE           *cinf = fdopen(cin, "rb");
     size_t          size = 0;
     int             header_sent = 0;
+    int             code = 200;
 
     fcntl(cin, F_SETFL, O_NONBLOCK);
     signal(SIGCHLD, sigchld);
@@ -114,11 +115,15 @@ cgi_parent(int cin, int cout, int passthru)
                                 printf("%s: %s\r\n\r\n", cgiheader, val);
                                 dolog(302, 0);
                                 exit(0);
+                            } else if (! strcasecmp(cgiheader, "Status")) {
+                                char *txt = val + 4;
+                                
+                                code = atoi(val);
+                                header(code, txt);
+                            } else {
+                                header(200, "OK");
+                                printf("Pragma: no-cache\r\n");
                             }
-                        
-                            header(200, "OK");
-                            printf("Pragma: no-cache\r\n");
-
                             header_sent = 1;
                         }
                         printf("%s: %s\r\n", cgiheader, val);
