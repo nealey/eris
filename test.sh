@@ -43,6 +43,7 @@ cat <<'EOD' > default/a.cgi
 echo 'Content-type: text/plain'
 echo
 set | sort
+ls *.cgi
 EOD
 chmod +x default/a.cgi
 
@@ -88,10 +89,10 @@ echo "IDX:   $HTTPD_IDX  "
 H "Basic tests"
 
 title "GET /index.html"
-printf 'GET /index.html HTTP/1.0\r\n\r\n' | $HTTPD 2>/dev/null | d | grep -q 'HTTP/1.0 200 OK#%Server: [a-z]*/[0-9a-z.]*#%Connection: close#%Content-Type: text/html; charset=UTF-8#%Content-Length: 6#%Last-Modified: ..., .. ... 20.. ..:..:.. GMT#%#%james%' && pass || fail
+printf 'GET /index.html HTTP/1.0\r\n\r\n' | $HTTPD 2>/dev/null | d | grep -q 'HTTP/1.0 200 OK#%Server: eris/[0-9.a-z]*#%Connection: close#%Content-Type: text/html; charset=UTF-8#%Content-Length: 6#%Last-Modified: ..., .. ... 20.. ..:..:.. GMT#%#%james%' && pass || fail
 
 title "GET /"
-printf 'GET / HTTP/1.0\r\n\r\n' | $HTTPD 2>/dev/null | d | grep -q 'HTTP/1.0 200 OK#%Server: [a-z]*/[0-9a-z.]*#%Connection: close#%Content-Type: text/html; charset=UTF-8#%Content-Length: 6#%Last-Modified: ..., .. ... 20.. ..:..:.. GMT#%#%james%' && pass || fail
+printf 'GET / HTTP/1.0\r\n\r\n' | $HTTPD 2>/dev/null | d | grep -q 'HTTP/1.0 200 OK#%Server: eris/[0-9.a-z]*#%Connection: close#%Content-Type: text/html; charset=UTF-8#%Content-Length: 6#%Last-Modified: ..., .. ... 20.. ..:..:.. GMT#%#%james%' && pass || fail
 
 title "Keepalive"
 printf 'GET / HTTP/1.1\r\n\r\nGET / HTTP/1.1\r\n\r\n' | $HTTPD 2>/dev/null | grep -c 'james' | grep -q 2 && pass || fail
@@ -191,6 +192,10 @@ H "CGI"
 title "Basic CGI"
 printf 'GET /a.cgi HTTP/1.0\r\n\r\n' | \
     $HTTPD_CGI 2>/dev/null | d | grep -Eq 'HTTP/1.0 200 OK#%Server: .*#%Connection: close#%Pragma: no-cache#%Content-type: text/plain#%#%.*%GATEWAY_INTERFACE=.?CGI/1.1.?%' && pass || fail
+
+title "CGI chdir"
+printf 'GET /a.cgi HTTP/1.0\r\n\r\n' | \
+    $HTTPD_CGI 2>/dev/null | d | grep -Eq '%a.cgi%' && pass || fail
 
 title "REQUEST_METHOD"
 printf 'GET /a.cgi HTTP/1.0\r\n\r\n' | \
