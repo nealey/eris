@@ -30,6 +30,17 @@ cgi_child(const char *relpath)
         env("CONTENT_TYPE", content_type);
     }
 
+    /* Change to CGI's directory */
+    {
+        char *delim = strrchr(relpath, '/');
+
+        if (delim) {
+            *delim = '\0';
+            chdir(relpath);
+            relpath = delim + 1;
+        }
+    }
+
     execl(relpath, relpath, NULL);
     exit(1);
 }
