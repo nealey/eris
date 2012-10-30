@@ -35,10 +35,15 @@
  *   THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <time.h>
+#include <ctype.h>
+#include <string.h>
+#include "timerfc.h"
+
 static const char days[] = "SunMonTueWedThuFriSat";
 static const char months[] = "JanFebMarAprMayJunJulAugSepOctNovDec";
 
-static          time_t
+time_t
 timerfc(const char *s)
 {
     static const int daytab[2][12] = {

@@ -1,3 +1,7 @@
+#include <stdio.h>
+#include <ctype.h>
+#include "strings.h"
+
 int
 endswith(char *haystack, char *needle)
 {
@@ -20,7 +24,7 @@ endswith(char *haystack, char *needle)
 }
 
 /** Replace whitespace with underscores for logging */
-static void
+void
 sanitize(char *s)
 {
     if (!s) {

@@ -1,3 +1,7 @@
+#include <stdio.h>
+#include <string.h>
+#include "mime.h"
+
 static struct mimeentry {
     const char     *name,
                    *type;
@@ -44,7 +48,7 @@ static const char *default_mimetype = "application/octet-stream";
 /*
  * Determine MIME type from file extension
  */
-static const char *
+const char *
 getmimetype(char *url)
 {
     char *ext = strrchr(url, '.');
