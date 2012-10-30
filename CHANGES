@@ -1,10 +1,11 @@
-3.1d:
+3.1:
   Add -. flag to disable vhosting
   Support server push CGI
   Handle busybox tcpsvd
   Changed formatting of directory indexing
   Handle read timeout
   Fix if-modified-since bug with keepalive connections
+  Change to CGI's directory on exec
 
 3.0:
   More or less a ground-up rewrite.  A few fnord parts remain

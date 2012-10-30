@@ -1,3 +1,1 @@
-* Chdir to the directory containing the CGI
-* There is some sort of keepalive problem with static HTML
 * Investigate CGI keep-alive
