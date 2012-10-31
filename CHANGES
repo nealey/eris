@@ -1,3 +1,7 @@
+3.1.2:
+  Change how version is extracted from CHANGES, to deal with
+    build systems that set CFLAGS.
+
 3.1.1:
   Restructured code to make it easier to package for Debian.
     I hate you so much right now, Ryan.
