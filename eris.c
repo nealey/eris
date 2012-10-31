@@ -25,6 +25,7 @@
 #include "strings.h"
 #include "mime.h"
 #include "timerfc.h"
+#include "version.h"
 
 #ifdef __linux__
 #   include <sys/sendfile.h>
@@ -143,7 +144,7 @@ void
 header(unsigned int code, const char *httpcomment)
 {
     printf("HTTP/1.%d %u %s\r\n", http_version, code, httpcomment);
-    printf("Server: " FNORD "\r\n");
+    printf("Server: %s\r\n", FNORD);
     printf("Connection: %s\r\n", keepalive?"keep-alive":"close");
 }
 
@@ -265,7 +266,7 @@ parse_options(int argc, char *argv[])
                 redirect = 1;
                 break;
             case 'v':
-                printf(FNORD "\n");
+                printf("%s\n", FNORD);
                 exit(0);
             case 'h':
             default:
@@ -319,14 +320,15 @@ cgi_child(const char *relpath)
         env("CONTENT_TYPE", content_type);
     }
 
-    /* Change to CGI's directory */
+    /* Try to change to CGI's directory */
     {
         char *delim = strrchr(relpath, '/');
 
         if (delim) {
             *delim = '\0';
-            chdir(relpath);
-            relpath = delim + 1;
+            if (0 == chdir(relpath)) {
+                relpath = delim + 1;
+            }
         }
     }
 
@@ -439,13 +441,23 @@ cgi_parent(int cin, int cout, int passthru)
                 size_t len;
                 char buf[BUFFER_SIZE];
                 size_t nmemb = min(BUFFER_SIZE, content_length);
+                char *p = buf;
 
                 len = fread(buf, 1, nmemb, stdin);
                 if (len < 1) {
                     break;
                 }
                 content_length -= len;
-                write(cout, buf, len);
+
+                while (len > 0) {
+                    size_t wlen = write(cout, p, len);
+
+                    if (wlen == -1) {
+                        break;
+                    }
+                    len -= wlen;
+                    p += wlen;
+                }
             } else {
                 close(cout);
             }
@@ -989,7 +1001,9 @@ main(int argc, char *argv[], const char *const *envp)
         if (! keepalive) {
             break;
         }
-        fchdir(cwd);
+        if (-1 == fchdir(cwd)) {
+            break;
+        }
     }
 
     return 0;
