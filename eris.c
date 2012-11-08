@@ -616,7 +616,7 @@ serve_idx(int fd, char *path)
     html_esc(stdout, path);
     printf("</title></head><body><h1>Directory Listing: ");
     html_esc(stdout, path);
-    printf("</h1><pre>");
+    printf("</h1><pre>\n");
     if (path[1]) {
         printf("<a href=\"../\">Parent Directory</a>\n");
     }
@@ -661,7 +661,9 @@ serve_idx(int fd, char *path)
         url_esc(stdout, name);
         printf("</a>\n");
     }
-    printf("</pre></body></html>");
+    printf("</pre></body></html>\n");
+
+    dolog(200, 0);
 }
 
 void
