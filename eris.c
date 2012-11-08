@@ -79,7 +79,6 @@
 /*
  * Options
  */
-int             doauth = 0;
 int             docgi = 0;
 int             doidx = 0;
 int             nochdir = 0;
@@ -245,11 +244,8 @@ parse_options(int argc, char *argv[])
 {
     int             opt;
 
-    while (-1 != (opt = getopt(argc, argv, "acdhkprv."))) {
+    while (-1 != (opt = getopt(argc, argv, "cdhkprv."))) {
         switch (opt) {
-            case 'a':
-                doauth = 1;
-                break;
             case 'c':
                 docgi = 1;
                 break;
@@ -273,7 +269,6 @@ parse_options(int argc, char *argv[])
                 fprintf(stderr, "Usage: %s [OPTIONS]\n",
                         argv[0]);
                 fprintf(stderr, "\n");
-                fprintf(stderr, "-a         Enable authentication\n");
                 fprintf(stderr, "-c         Enable CGI\n");
                 fprintf(stderr, "-d         Enable directory listing\n");
                 fprintf(stderr, "-.         Serve out of ./ (no vhosting)\n");
