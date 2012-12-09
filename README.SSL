@@ -1,0 +1,26 @@
+SSL with eris
+=============
+
+Eris does not care what transport is in use: that job is left to the invoking
+program (eg. tcpserver).
+
+Gerrit Pape's `ipsvd` package comes with two programs for running SSL daemons:
+`sslsvd` and `sslio`.  At the time of this writing, however, Gerrit's `ipsvd`
+has no support for IPv6.  Busybox `ipsvd`, and `ucspi-tcp-ipv6`, both do
+support IPv6.
+
+Here is how you can support SSL *and* IPv6:
+
+    cd /srv/www
+    HTTPS=enabled; export HTTPS
+    exec tcpserver -H -R 0 443 \
+        /usr/bin/sslio -u nobody:ssl-cert -U www-data \
+            -C /path/to/mydomain.crt -K /path/to/mydomain.key \
+        /service/httpd/eris -c
+
+This uses `tcpserver` to listen for and accept TCP4 and TCP6 connections.
+These connections are then handed to `sslio`, which drops permissions to
+`nobody:ssl-cert` and starts speaking SSL to `eris` running as `www-data`.
+
+I like to set the `HTTPS` environment variable also, so CGI can tell whether or
+not its connection is secure.

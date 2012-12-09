@@ -553,6 +553,7 @@ serve_file(int fd, char *filename, struct stat *st)
     if (st->st_mtime <= ims) {
         header(304, "Not Changed");
         eoh();
+        dolog(304, 0);
         return;
     }
 

@@ -175,6 +175,9 @@ printf 'GET / HTTP/1.0\r\nIf-Modified-Since: Sun Feb 27 12:12:12 2030\r\n\r\n' |
 title "ims persist"
 printf 'GET / HTTP/1.1\r\nIf-Modified-Since: %s\r\n\r\nGET / HTTP/1.0\r\n\r\n' "$ims" | $HTTPD 2>/dev/null | d | grep -q 'HTTP/1.. 304.*HTTP/1.. 200' && pass || fail
 
+title "Logging"
+(printf 'GET / HTTP/1.0\r\nIf-Modified-Since: %s\r\n\r\n' "$ims" | $HTTPD > /dev/null) 2>&1 | grep -q '304' && pass || fail
+
 
 
 H "Directory indexing"
