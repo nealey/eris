@@ -939,7 +939,7 @@ handle_request()
 		char fn[PATH_MAX];
 
 		if (host) {
-			strncpy(fn, host, sizeof fn);
+			snprintf(fn, sizeof(fn), "%s", host);
 		} else {
 			fn[0] = 0;
 		}
