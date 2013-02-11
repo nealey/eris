@@ -149,6 +149,12 @@ title "Too many headers"
      printf 'Header: val\r\n'
  done
  printf '\r\n') | $HTTPD 2>/dev/null | grep -q 'HTTP/1.. 431 ' && pass || fail
+ 
+ title "Directory traversal"
+ printf 'GET /../default/index.html HTTP/1.0\r\n\r\n' | $HTTPD 2>/dev/null | grep -q 'HTTP/1.. 404' && pass || fail
+ 
+ title "Escaped directory traversal"
+ printf 'GET /%%2e%%2e/default/index.html HTTP/1.0\r\n\r\n' | $HTTPD 2>/dev/null | grep -q 'HTTP/1.. 404' && pass || fail
 
 
 H "If-Modified-Since"
