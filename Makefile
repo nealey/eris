@@ -1,14 +1,15 @@
-VERSION := $(shell head -n 1 CHANGES | tr -d :)
-
-CFLAGS = -DFNORD='"eris/$(VERSION)"' -Wall -Werror
+CFLAGS = -Wall -Werror
 
 all: eris
 
-eris: eris.c strings.c mime.c time.c cgi.c
-	$(CC) $(CFLAGS) -o $@ $<
+eris: eris.o strings.o mime.o timerfc.o
+
+eris.o: version.h
+version.h: CHANGES
+	awk -F : 'NR==1 {printf("const char *FNORD = \"eris/%s\";\n", $$1);}' $< > $@
 
 test: eris
 	sh ./test.sh
 
 clean:
-	rm -f *.[oa] eris
+	rm -f *.[oa] version.h eris

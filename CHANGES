@@ -1,5 +1,22 @@
 4.0:
-	Fix directory traversal vulnerability (Alyssa Milburn)
+	Fix directory traversal vulnerability (Alyssa Milburn).
+
+3.1.4:
+	Have 304 (Not Modified) responses generate a log entry.
+
+3.1.3:
+	Have directory indexes generate a log entry.
+	Remove nop -a option.
+	Add some accessories in contrib/
+
+3.1.2:
+	Change how version is extracted from CHANGES, to deal with
+		build systems that set CFLAGS.
+	Stop hating Ryan Finnie.
+
+3.1.1:
+	Restructure code to make it easier to package for Debian.
+		I hate you so much right now, Ryan Finnie.
 
 3.1:
 	Add -. flag to disable vhosting

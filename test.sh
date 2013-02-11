@@ -181,16 +181,22 @@ printf 'GET / HTTP/1.0\r\nIf-Modified-Since: Sun Feb 27 12:12:12 2030\r\n\r\n' |
 title "ims persist"
 printf 'GET / HTTP/1.1\r\nIf-Modified-Since: %s\r\n\r\nGET / HTTP/1.0\r\n\r\n' "$ims" | $HTTPD 2>/dev/null | d | grep -q 'HTTP/1.. 304.*HTTP/1.. 200' && pass || fail
 
+title "Logging"
+(printf 'GET / HTTP/1.0\r\nIf-Modified-Since: %s\r\n\r\n' "$ims" | $HTTPD > /dev/null) 2>&1 | grep -q '304' && pass || fail
+
 
 
 H "Directory indexing"
 
 title "Basic index"
-printf 'GET /empty/ HTTP/1.0\r\n\r\n' | $HTTPD_IDX 2>/dev/null | d | grep -Fq '<h1>Directory Listing: /empty/</h1><pre><a href="../">Parent Directory</a>%</pre>' && pass || fail
+printf 'GET /empty/ HTTP/1.0\r\n\r\n' | $HTTPD_IDX 2>/dev/null | d | grep -Fq '<h1>Directory Listing: /empty/</h1><pre>%<a href="../">Parent Directory</a>%</pre>' && pass || fail
 
 title "Hidden file"
 printf 'GET /subdir/ HTTP/1.0\r\n\r\n' | $HTTPD_IDX 2>/dev/null | grep -q 'hidden' && fail || pass
 
+title "Logging"
+(printf 'GET /empty/ HTTP/1.0\r\n\r\n' |
+    PROTO=TCP TCPREMOTEPORT=1234 TCPREMOTEIP=10.0.0.2 $HTTPD_IDX >/dev/null) 2>&1 | grep -q '^10.0.0.2:1234 200 0 (null) (null) (null) /empty/$' && pass || fail
 
 
 H "CGI"

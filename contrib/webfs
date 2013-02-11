@@ -1,0 +1,14 @@
+#! /bin/sh
+
+PORT=8888
+
+if [ $# = 0 ]; then
+    ARGS=-d
+fi
+
+addr=$(ifconfig | awk -F '[: ]+' '/inet addr/ {print $4;}' \
+        | grep -Fv 127.0.0.1 | head -n 1)
+
+echo Listening on http://$addr:$PORT/
+
+tcpsvd 0 $PORT eris -. $ARGS "$@"
