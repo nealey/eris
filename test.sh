@@ -190,7 +190,6 @@ H "Directory indexing"
 
 title "Basic index"
 printf 'GET /empty/ HTTP/1.0\r\n\r\n' | $HTTPD_IDX 2>/dev/null | d | grep -Fq '<h1>Directory Listing: /empty/</h1><pre>%<a href="../">Parent Directory</a>%</pre>' && pass || fail
-
 title "Hidden file"
 printf 'GET /subdir/ HTTP/1.0\r\n\r\n' | $HTTPD_IDX 2>/dev/null | grep -q 'hidden' && fail || pass
 

@@ -79,20 +79,13 @@
 /*
  * Options
  */
-<<<<<<< HEAD
-int			 doauth = 0;
-int			 docgi = 0;
-int			 doidx = 0;
-int			 nochdir = 0;
-int			 redirect = 0;
-int			 portappend = 0;
-=======
-int             docgi = 0;
-int             doidx = 0;
-int             nochdir = 0;
-int             redirect = 0;
-int             portappend = 0;
->>>>>>> 78dec35acd3e12a01a037244ce64d0d1b7de4cc4
+int doauth = 0;
+int docgi = 0;
+int doidx = 0;
+int nochdir = 0;
+int redirect = 0;
+int portappend = 0;
+
 
 /* Variables that persist between requests */
 int			 cwd;
@@ -117,34 +110,9 @@ off_t range_start, range_end;
 time_t ims;
 
 
-<<<<<<< HEAD
 #define BUFFER_SIZE 8192
-char			stdout_buf[BUFFER_SIZE];
+char stdout_buf[BUFFER_SIZE];
 
-#include "strings.c"
-#include "mime.c"
-#include "time.c"
-
-=======
->>>>>>> 78dec35acd3e12a01a037244ce64d0d1b7de4cc4
-/*
- * TCP_CORK is a Linux extension to work around a TCP problem.
- * http://www.baus.net/on-tcp_cork has a good description.
- * XXX:  Since we do our own buffering, TCP_CORK may not be helping
- * with anything.  This needs testing.
- */
-void
-cork(int enable)
-{
-#ifdef TCP_CORK
-	static int corked = 0;
-
-	if (enable != corked) {
-		setsockopt(1, IPPROTO_TCP, TCP_CORK, &enable, sizeof(enable));
-		corked = enable;
-	}
-#endif
-}
 
 /** Log a request */
 void
@@ -161,15 +129,10 @@ dolog(int code, off_t len)
 void
 header(unsigned int code, const char *httpcomment)
 {
-<<<<<<< HEAD
 	printf("HTTP/1.%d %u %s\r\n", http_version, code, httpcomment);
-	printf("Server: " FNORD "\r\n");
+	printf("Server: %s\r\n", FNORD);
 	printf("Connection: %s\r\n", keepalive?"keep-alive":"close");
-=======
-    printf("HTTP/1.%d %u %s\r\n", http_version, code, httpcomment);
-    printf("Server: %s\r\n", FNORD);
-    printf("Connection: %s\r\n", keepalive?"keep-alive":"close");
->>>>>>> 78dec35acd3e12a01a037244ce64d0d1b7de4cc4
+
 }
 
 void
@@ -202,7 +165,6 @@ badrequest(long code, const char *httpcomment, const char *message)
 	exit(0);
 }
 
-<<<<<<< HEAD
 void
 env(const char *k, const char *v)
 {
@@ -210,8 +172,6 @@ env(const char *k, const char *v)
 		setenv(k, v, 1);
 	}
 }
-=======
->>>>>>> 78dec35acd3e12a01a037244ce64d0d1b7de4cc4
 
 
 void
@@ -226,14 +186,6 @@ not_found()
 	printf("%s\n", msg);	/* sizeof msg includes the NULL */
 	dolog(404, sizeof msg);
 	fflush(stdout);
-}
-
-void
-env(const char *k, const char *v)
-{
-    if (v) {
-        setenv(k, v, 1);
-    }
 }
 
 char *
@@ -277,7 +229,6 @@ get_ucspi_env()
 void
 parse_options(int argc, char *argv[])
 {
-<<<<<<< HEAD
 	int			 opt;
 
 	while (-1 != (opt = getopt(argc, argv, "acdhkprv."))) {
@@ -301,7 +252,7 @@ parse_options(int argc, char *argv[])
 				redirect = 1;
 				break;
 			case 'v':
-				printf(FNORD "\n");
+				printf("%s\n", FNORD);
 				exit(0);
 			case 'h':
 			default:
@@ -318,44 +269,6 @@ parse_options(int argc, char *argv[])
 				exit(69);
 		}
 	}
-=======
-    int             opt;
-
-    while (-1 != (opt = getopt(argc, argv, "cdhkprv."))) {
-        switch (opt) {
-            case 'c':
-                docgi = 1;
-                break;
-            case 'd':
-                doidx = 1;
-                break;
-            case '.':
-                nochdir = 1;
-                break;
-            case 'p':
-                portappend = 1;
-                break;
-            case 'r':
-                redirect = 1;
-                break;
-            case 'v':
-                printf("%s\n", FNORD);
-                exit(0);
-            case 'h':
-            default:
-                fprintf(stderr, "Usage: %s [OPTIONS]\n",
-                        argv[0]);
-                fprintf(stderr, "\n");
-                fprintf(stderr, "-c         Enable CGI\n");
-                fprintf(stderr, "-d         Enable directory listing\n");
-                fprintf(stderr, "-.         Serve out of ./ (no vhosting)\n");
-                fprintf(stderr, "-p         Append port to hostname directory\n");
-                fprintf(stderr, "-r         Enable symlink redirection\n");
-                fprintf(stderr, "-v         Print version and exit\n");
-                exit(69);
-        }
-    }
->>>>>>> 78dec35acd3e12a01a037244ce64d0d1b7de4cc4
 }
 
 /*
@@ -539,7 +452,6 @@ cgi_parent(int cin, int cout, int passthru)
 
     fflush(stdout);
     dolog(200, size);
-    cork(0);
 }
 
 void
@@ -628,20 +540,12 @@ serve_file(int fd, char *filename, struct stat *st)
 		badrequest(405, "Method Not Supported", "POST is not supported by this URL");
 	}
 
-<<<<<<< HEAD
 	if (st->st_mtime <= ims) {
 		header(304, "Not Changed");
+		dolog(304, 0);
 		eoh();
 		return;
 	}
-=======
-    if (st->st_mtime <= ims) {
-        header(304, "Not Changed");
-        eoh();
-        dolog(304, 0);
-        return;
-    }
->>>>>>> 78dec35acd3e12a01a037244ce64d0d1b7de4cc4
 
 	header(200, "OK");
 	printf("Content-Type: %s\r\n", getmimetype(filename));
@@ -687,7 +591,6 @@ serve_file(int fd, char *filename, struct stat *st)
 void
 serve_idx(int fd, char *path)
 {
-<<<<<<< HEAD
 	DIR *d = fdopendir(fd);
 	struct dirent *de;
 
@@ -704,7 +607,7 @@ serve_idx(int fd, char *path)
 	html_esc(stdout, path);
 	printf("</title></head><body><h1>Directory Listing: ");
 	html_esc(stdout, path);
-	printf("</h1><pre>");
+	printf("</h1><pre>\n");
 	if (path[1]) {
 		printf("<a href=\"../\">Parent Directory</a>\n");
 	}
@@ -750,72 +653,8 @@ serve_idx(int fd, char *path)
 		printf("</a>\n");
 	}
 	printf("</pre></body></html>");
-=======
-    DIR *d = fdopendir(fd);
-    struct dirent *de;
 
-    if (method == POST) {
-        badrequest(405, "Method Not Supported", "POST is not supported by this URL");
-    }
-
-    keepalive = 0;
-    header(200, "OK");
-    printf("Content-Type: text/html\r\n");
-    eoh();
-
-    printf("<!DOCTYPE html>\r<html><head><title>");
-    html_esc(stdout, path);
-    printf("</title></head><body><h1>Directory Listing: ");
-    html_esc(stdout, path);
-    printf("</h1><pre>\n");
-    if (path[1]) {
-        printf("<a href=\"../\">Parent Directory</a>\n");
-    }
-
-    while ((de = readdir(d))) {
-        char           *name = de->d_name;
-        char            symlink[PATH_MAX];
-        struct stat     st;
-
-        if (name[0] == '.') {
-            continue;   /* hidden files -> skip */
-        }
-        if (lstat(name, &st)) {
-            continue;   /* can't stat -> skip */
-        }
-
-        if (S_ISDIR(st.st_mode)) {
-            printf("[DIR]     ");
-        } else if (S_ISLNK(st.st_mode)) {
-            ssize_t         len = readlink(de->d_name, symlink, (sizeof symlink) - 1);
-
-            if (len < 1) {
-                continue;
-            }
-            name = symlink;
-            printf("[LNK]     ");        /* symlink */
-        } else if (S_ISREG(st.st_mode)) {
-            printf("%10llu", (unsigned long long)st.st_size);
-        } else {
-            continue;   /* not a file we can provide -> skip */
-        }
-
-        /*
-         * write a href 
-         */
-        printf("  <a href=\"");
-        url_esc(stdout, name);
-        if (S_ISDIR(st.st_mode)) {
-            printf("/");
-        }
-        printf("\">");
-        url_esc(stdout, name);
-        printf("</a>\n");
-    }
-    printf("</pre></body></html>\n");
-
-    dolog(200, 0);
->>>>>>> 78dec35acd3e12a01a037244ce64d0d1b7de4cc4
+	dolog(200, 0);
 }
 
 void
@@ -1128,10 +967,8 @@ handle_request()
 
 	/* Serve the file */
 	alarm(WRITETIMEOUT);
-	cork(1);
 	find_serve_file(fspath);
 	fflush(stdout);
-	cork(0);
 
 	return;
 }
@@ -1143,9 +980,6 @@ main(int argc, char *argv[], const char *const *envp)
 
 	cwd = open(".", O_RDONLY);
 
-<<<<<<< HEAD
-	setbuffer(stdout, stdout_buf, sizeof stdout_buf);
-
 	signal(SIGPIPE, SIG_IGN);
 	get_ucspi_env();
 
@@ -1154,22 +988,10 @@ main(int argc, char *argv[], const char *const *envp)
 		if (! keepalive) {
 			break;
 		}
-		fchdir(cwd);
+		if (-1 == fchdir(cwd)) {
+			break;
+		}
 	}
-=======
-    signal(SIGPIPE, SIG_IGN);
-    get_ucspi_env();
-
-    while (1) {
-        handle_request();
-        if (! keepalive) {
-            break;
-        }
-        if (-1 == fchdir(cwd)) {
-            break;
-        }
-    }
->>>>>>> 78dec35acd3e12a01a037244ce64d0d1b7de4cc4
 
 	return 0;
 }
