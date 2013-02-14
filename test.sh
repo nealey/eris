@@ -112,6 +112,9 @@ printf 'GET / HTTP/1.0\n\n' | $HTTPD 2>/dev/null | grep -q 'james' && pass || fa
 title "No trailing slash"
 printf 'GET /empty HTTP/1.0\r\n\r\n' | $HTTPD 2>/dev/null | d | grep -q '301 Redirect#%.*Location: /empty/#%#%' && pass || fail
 
+title "No version after query_string"
+printf 'GET /?\r\n\r\n' | $HTTPD 2>/dev/null | d | grep -q 'HTTP/0.9' && pass || fail
+
 title "Logging /"
 (printf 'GET / HTTP/1.1\r\nHost: host\r\n\r\n' | 
     PROTO=TCP TCPREMOTEPORT=1234 TCPREMOTEIP=10.0.0.2 $HTTPD >/dev/null) 2>&1 | grep -q '^10.0.0.2:1234 200 6 host (null) (null) /$' && pass || fail

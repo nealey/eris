@@ -782,33 +782,31 @@ handle_request()
 		*(fsp++) = '.';
 		*(fsp++) = '/';
 		for (; *p != ' '; p += 1) {
-			if (! query_string) {
-				char c = *p;
+			char c = *p;
 
-				switch (c) {
-					case 0:
-						badrequest(413, "Request Entity Too Large", "The HTTP request was too long");
-					case '\n':
-						badrequest(505, "Version Not Supported", "HTTP/0.9 not supported");
-					case '?':
-						query_string = p + 1;
-						continue;
-					case '%':
-						if (p[1] && p[2]) {
-							int a = fromhex(p[1]);
-							int b = fromhex(p[2]);
+			switch (c) {
+				case 0:
+					badrequest(413, "Request Entity Too Large", "The HTTP request was too long");
+				case '\n':
+					badrequest(505, "Version Not Supported", "HTTP/0.9 not supported");
+				case '?':
+					query_string = p + 1;
+					break;
+				case '%':
+					if ((! query_string) && p[1] && p[2]) {
+						int a = fromhex(p[1]);
+						int b = fromhex(p[2]);
 
-							if ((a >= 0) && (b >= 0)) {
-								c = (a << 4) | b;
-								p += 2;
-							}
+						if ((a >= 0) && (b >= 0)) {
+							c = (a << 4) | b;
+							p += 2;
 						}
-						break;
-				}
+					}
+					break;
+			}
 
-				if (fsp - fspath + 1 < sizeof fspath) {
-					*(fsp++) = c;
-				}
+			if ((! query_string) && (fsp - fspath + 1 < sizeof fspath)) {
+				*(fsp++) = c;
 			}
 		}
 		*fsp = 0;

@@ -1,3 +1,6 @@
+4.1:
+	Fix 0.9 not detected with query_string (Alyssa Milburn).
+
 4.0:
 	Fix directory traversal vulnerability (Alyssa Milburn).
 
