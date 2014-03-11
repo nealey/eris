@@ -1,10 +1,31 @@
 About
 =====
 
+Eris is an HTTP/1.1 web server with CGI.
+It is very fast,
+uses very little memory,
+and has a tiny codebase which has been audited at least twice by gray-hat hackers.
+It relies on an external program,
+such as tcpserver or netcat,
+to handle networking,
+and expects to be run once for every connection.
+This may sound horrible,
+but it's actually pretty quick,
+especially since this architecture makes it trivial to use the
+`sendfile` call in Linux
+(added in 2003 as a reaction to Apache losing to IIS in benchmarks),
+which sends an open file directly to a socket,
+without having to context switch into userspace.
+
+It conforms to the parts of HTTP/1.1 that appear to be important to clients.
+I have not found any HTTP/1.1 clients which have trouble with Eris,
+including curl, which breaks with fnord (the reason I began work on Eris).
+
 Eris HTTPD is a part of [Dirtbags Capture The Flag](http://dirtbags.net/ctf/).
-As I was adding more and more patches against [fnord 1.10](http://www.fefe.de/),
+After many patches against [fnord 1.10](http://www.fefe.de/),
 I decided to fork fnord into a new project.
 Fnord's author approved of the fork.
+
 
 Differences with fnord
 ======================
