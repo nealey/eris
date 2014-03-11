@@ -1,10 +1,10 @@
 About
 =====
 
-Eris HTTPD is a part of Dirtbags Capture The Flag
-(http://dirtbags.net/ctf/).  As I was adding more and more patches
-against fnord 1.10 (http://www.fefe.de/), I decided to fork fnord into
-a new project.  Fnord's author approved of the fork.
+Eris HTTPD is a part of [Dirtbags Capture The Flag](http://dirtbags.net/ctf/).
+As I was adding more and more patches against [fnord 1.10](http://www.fefe.de/),
+I decided to fork fnord into a new project.
+Fnord's author approved of the fork.
 
 Differences with fnord
 ======================
@@ -77,3 +77,15 @@ whose names end with ".cgi" as CGI programs and try to execute them.
 CGI programs starting with "nph-" will be handled as no-parse-header
 CGIs.
 Please see <http://hoohoo.ncsa.uiuc.edu/cgi/interface.html> for the CGI specification.
+
+
+About The Name
+==============
+
+[Eris](http://en.wikipedia.org/wiki/Eris_(dwarf_planet%29)
+is the most massive (heaviest) dwarf planet in the solar system.
+It's heavier than Pluto!
+
+Its discovery is what spurred astronomers to finally define the word "planet",
+which resulted in Pluto being classified a dwarf planet.
+Otherwise, we would have to count Eris as a tenth planet.
