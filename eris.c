@@ -514,7 +514,7 @@ ssize_t
 fake_sendfile(int out_fd, int in_fd, off_t *offset, size_t count)
 {
 	char buf[BUFFER_SIZE];
-	ssize_t l, sent;
+	ssize_t l, m;
 
 	/* is mmap quicker?  does it matter? */
 	if (-1 == lseek(in_fd, *offset, SEEK_SET)) {
