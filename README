@@ -90,8 +90,6 @@ eris will use sendfile on Linux to enable zero-copy TCP.
 
 If eris is given the -c option, it will regard files
 whose names end with ".cgi" as CGI programs and try to execute them.
-CGI programs starting with "nph-" will be handled as no-parse-header
-CGIs.
 Please see <http://hoohoo.ncsa.uiuc.edu/cgi/interface.html> for the CGI specification.
 
 
