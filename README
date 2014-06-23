@@ -81,11 +81,6 @@ if no specific directory for the virtual host was there.
 eris implements el-cheapo HTTP ranges (only byte ranges and only of the
 form x-y, not multiple ranges).
 
-eris implements content type matching and Accepts: parsing, but the
-content type table is compiled in, i.e. to change it, you have to change
-the source code.  Shouldn't be a problem because you _have_ the source
-code ;)
-
 eris will change dots at the start of file or directory names to colons
 in the query before trying to answer them.
 
