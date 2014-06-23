@@ -75,7 +75,7 @@ extract_header_field(char *buf, char **val, int cgi)
         }
     }
 
-    for (; (buf[len-1] == '\n') || (buf[len-1] == '\r'); len -= 1);
+    for (; (len > 0) && ((buf[len-1] == '\n') || (buf[len-1] == '\r')); len -= 1);
     buf[len] = 0;
 
     return len;

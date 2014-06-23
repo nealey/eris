@@ -1,3 +1,8 @@
+4.2:
+	Remove some bugs in CGI's "Status:" code (reported by Alyssa Milburn).
+	Make extract_header_field less fragile (reported by Alyssa Milburn).
+	Possibly fix fake_sendfile (reported by Alyssa Milburn).
+
 4.1:
 	Fix 0.9 not detected with query_string (Alyssa Milburn).
 
