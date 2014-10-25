@@ -111,7 +111,6 @@ time_t ims;
 
 
 #define BUFFER_SIZE 8192
-char stdout_buf[BUFFER_SIZE];
 
 
 /** Log a request */
@@ -406,9 +405,20 @@ cgi_parent(int cin, int cout, int passthru)
                                 dolog(302, 0);
                                 exit(0);
                             } else if (! strcasecmp(cgiheader, "Status")) {
-                                char *txt = val + 4;
+                                char *txt;
                                 
-                                code = atoi(val);
+                                if (val) {
+                                    code = (int)strtol(val, &txt, 10);
+                                } else {
+                                    code = 0;
+                                }
+                                if (code < 100) {
+                                    header(500, "Internal Error");
+                                    printf("CGI returned Status: %d\n", code);
+                                    dolog(500, 0);
+                                    exit(0);
+                                }
+                                for (; *txt == ' '; txt += 1);
                                 header(code, txt);
                             } else {
                                 header(200, "OK");
@@ -453,7 +463,7 @@ cgi_parent(int cin, int cout, int passthru)
     }
 
     fflush(stdout);
-    dolog(200, size);
+    dolog(code, size);
 }
 
 void
@@ -500,7 +510,7 @@ serve_cgi(char *relpath)
  * Main HTTPd
  */
 
-void
+ssize_t
 fake_sendfile(int out_fd, int in_fd, off_t *offset, size_t count)
 {
 	char buf[BUFFER_SIZE];
@@ -529,6 +539,8 @@ fake_sendfile(int out_fd, int in_fd, off_t *offset, size_t count)
 		}
 		l -= m;
 	}
+	
+	return l;
 }
 
 void
@@ -580,7 +592,7 @@ serve_file(int fd, char *filename, struct stat *st)
 		alarm(SENDFILE_TIMEOUT);
 		sent = sendfile(1, fd, &range_start, count);
 		if (-1 == sent) {
-			fake_sendfile(1, fd, &range_start, count);
+			sent = fake_sendfile(1, fd, &range_start, count);
 		}
 		remain -= sent;
 	}

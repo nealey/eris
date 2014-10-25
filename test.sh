@@ -64,7 +64,18 @@ chmod +x default/redir.cgi
 
 cat <<'EOD' > default/status.cgi
 #! /bin/sh
-echo "Status: 300 wat"
+case "$PATH_INFO" in
+/empty)
+	echo "Status"
+	exit 0
+	;;
+/nostat)
+	echo "Status: "
+	;;
+*)
+	echo "Status: 300 wat"
+	;;
+esac
 echo "Merf: merf"
 echo
 echo "james"
@@ -240,7 +251,13 @@ title "Redirect"
 printf 'GET /redir.cgi HTTP/1.0\r\n\r\n' | $HTTPD_CGI 2>/dev/null | grep -Fq 'Location: http://example.com/froot' && pass || fail
 
 title "Status"
-printf 'GET /status.cgi HTTP/1.0\r\n\r\n' | $HTTPD_CGI 2>/dev/null | d | grep -q '^HTTP/1.0 300 wat#%' && pass || fail
+printf 'GET /status.cgi HTTP/1.0\r\n\r\n' | $HTTPD_CGI 2>&1 | d | grep -q '^HTTP/1.0 300 wat#%.*.null. 300 6' && pass || fail
+
+title "Status bug"
+printf 'GET /status.cgi/empty HTTP/1.0\r\n\r\n' | $HTTPD_CGI 2>/dev/null | d | grep -q '^HTTP/1.0 500 ' && pass || fail
+
+title "No status"
+printf 'GET /status.cgi/nostat HTTP/1.0\r\n\r\n' | $HTTPD_CGI 2>/dev/null | d | grep -q '^HTTP/1.0 500 ' && pass || fail
 
 
 H "Timeouts"
