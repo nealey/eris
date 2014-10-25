@@ -154,7 +154,7 @@ badrequest(long code, const char *httpcomment, const char *message)
 	if (message) {
 		msglen = (strlen(message) * 2) + 15;
 
-		printf("Content-Length: %lu\r\nContent-Type: text/html\r\n",
+		printf("Content-Length: %lu\r\nContent-Type: text/html\r\n\r\n",
 			   (unsigned long) msglen);
 		printf("<title>%s</title>%s", message, message);
 	}
@@ -335,6 +335,7 @@ cgi_parent(int cin, int cout, int passthru)
     fcntl(cin, F_SETFL, O_NONBLOCK);
     signal(SIGCHLD, sigchld);
     signal(SIGPIPE, SIG_IGN);   /* NO! no signal! */
+    signal(SIGALRM, sigalarm_cgi);
 
     while (1) {
         int             nfds;
@@ -356,6 +357,7 @@ cgi_parent(int cin, int cout, int passthru)
             cout = -1;
         }
 
+        alarm(CGI_TIMEOUT);
         if (-1 == select(nfds+1, &rfds, &wfds, NULL, NULL)) {
             break;
         }
@@ -476,8 +478,6 @@ serve_cgi(char *relpath)
         /* Eris is not this smart yet */
         keepalive = 0;
 
-        alarm(CGI_TIMEOUT);
-        signal(SIGALRM, sigalarm_cgi);
         cgi_parent(cin[0], cout[1], 0);
 
         exit(0);
