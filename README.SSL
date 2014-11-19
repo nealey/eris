@@ -13,10 +13,10 @@ which also works with IPv6.
 You can invoke it like so:
 
 	#! /bin/sh
-    cd /srv/www
-    HTTPS=enabled; export HTTPS
+	cd /srv/www
+	HTTPS=enabled; export HTTPS
 
-    exec stunnel -fd 3 3<<EOD
+	exec stunnel -fd 3 3<<EOD
 	foreground = yes
 	setuid = http
 	setgid = http
