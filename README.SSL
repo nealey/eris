@@ -4,23 +4,31 @@ SSL with eris
 Eris does not care what transport is in use: that job is left to the invoking
 program (eg. tcpserver).
 
-Gerrit Pape's `ipsvd` package comes with two programs for running SSL daemons:
-`sslsvd` and `sslio`.  At the time of this writing, however, Gerrit's `ipsvd`
-has no support for IPv6.  Busybox `ipsvd`, and `ucspi-tcp-ipv6`, both do
-support IPv6.
+In the past you could use `sslio` with `tcpsvd`,
+but `sslio` has not been updated in a long time,
+and won't work with (at least) Chrome 39.
 
-Here is how you can support SSL *and* IPv6:
+I recommend using stunnel,
+which also works with IPv6.
+You can invoke it like so:
 
+	#! /bin/sh
     cd /srv/www
     HTTPS=enabled; export HTTPS
-    exec tcpserver -H -R 0 443 \
-        /usr/bin/sslio -u nobody:ssl-cert -U www-data \
-            -C /path/to/mydomain.crt -K /path/to/mydomain.key \
-        /service/httpd/eris -c
 
-This uses `tcpserver` to listen for and accept TCP4 and TCP6 connections.
-These connections are then handed to `sslio`, which drops permissions to
-`nobody:ssl-cert` and starts speaking SSL to `eris` running as `www-data`.
+    exec stunnel -fd 3 3<<EOD
+	foreground = yes
+	setuid = http
+	setgid = http
+	debug = 4
 
-I like to set the `HTTPS` environment variable also, so CGI can tell whether or
-not its connection is secure.
+	[https]
+	accept = ::443
+	cert = /path/to/yourserver.crt
+	key = /path/to/yourserver.key
+	exec = /path/to/eris
+	execargs = eris -c
+	EOD
+
+I set the `HTTPS` environment variable,
+so CGI can tell whether or not its connection is secure.

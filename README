@@ -49,7 +49,7 @@ Start with:
 	tcpserver -v -RHl localhost -u 1234 -g 1234 0 80 ./eris
 
 There are many other ways to start eris.
-For example, you can run an HTTPS server using tcpsvd and sslio.
+For example, you can run an HTTPS server with stunnel.
 
 You just need something that launches eris with stdin and stdout connected to the client.
 
