@@ -266,6 +266,11 @@ title "Read timeout"
 (sleep 2.1; printf 'GET / HTTP/1.0\r\n\r\n') | $HTTPD 2>/dev/null | grep -q '.' && fail || pass
 
 
+H "CONNECT handler"
+
+title "Basic test"
+printf 'CONNECT /etc HTTP/1.1\r\n\r\n' | $HTTPD -o /bin/ls | grep -q passwd && pass || fail
+
 
 H "fnord bugs"
 

@@ -85,6 +85,7 @@ int doidx = 0;
 int nochdir = 0;
 int redirect = 0;
 int portappend = 0;
+char *connector = NULL;
 
 
 /* Variables that persist between requests */
@@ -98,7 +99,7 @@ char		   *remote_ident = NULL;
  * These could be put into a struct for a threading version
  * of eris.
  */
-enum { GET, POST, HEAD } method;
+enum { GET, POST, HEAD, CONNECT } method;
 char *host;
 char *user_agent;
 char *refer;
@@ -230,7 +231,7 @@ parse_options(int argc, char *argv[])
 {
 	int			 opt;
 
-	while (-1 != (opt = getopt(argc, argv, "acdhkprv."))) {
+	while (-1 != (opt = getopt(argc, argv, "acdhkpro:v."))) {
 		switch (opt) {
 			case 'a':
 				doauth = 1;
@@ -250,6 +251,9 @@ parse_options(int argc, char *argv[])
 			case 'r':
 				redirect = 1;
 				break;
+			case 'o':
+				connector = optarg;
+				break;
 			case 'v':
 				printf("%s\n", FNORD);
 				exit(0);
@@ -258,13 +262,14 @@ parse_options(int argc, char *argv[])
 				fprintf(stderr, "Usage: %s [OPTIONS]\n",
 						argv[0]);
 				fprintf(stderr, "\n");
-				fprintf(stderr, "-a		 Enable authentication\n");
-				fprintf(stderr, "-c		 Enable CGI\n");
-				fprintf(stderr, "-d		 Enable directory listing\n");
-				fprintf(stderr, "-.		 Serve out of ./ (no vhosting)\n");
-				fprintf(stderr, "-p		 Append port to hostname directory\n");
-				fprintf(stderr, "-r		 Enable symlink redirection\n");
-				fprintf(stderr, "-v		 Print version and exit\n");
+				fprintf(stderr, "-a           Enable authentication\n");
+				fprintf(stderr, "-c           Enable CGI\n");
+				fprintf(stderr, "-d           Enable directory listing\n");
+				fprintf(stderr, "-.           Serve out of ./ (no vhosting)\n");
+				fprintf(stderr, "-p           Append port to hostname directory\n");
+				fprintf(stderr, "-r           Enable symlink redirection\n");
+				fprintf(stderr, "-o HANDLER   Path to HTTP CONNECT handler\n");
+				fprintf(stderr, "-v           Print version and exit\n");
 				exit(69);
 		}
 	}
@@ -768,13 +773,16 @@ handle_request()
 	}
 	if (!strncmp(request, "GET /", 5)) {
 		method = GET;
-		p = request + 5;
+		p = request + 4;
 	} else if (!strncmp(request, "POST /", 6)) {
 		method = POST;
-		p = request + 6;
+		p = request + 5;
 	} else if (!strncmp(request, "HEAD /", 6)) {
 		method = HEAD;
-		p = request + 6;
+		p = request + 5;
+	} else if (connector && !strncmp(request, "CONNECT ", 8)) {
+		method = CONNECT;
+		p = request + 8;
 	} else {
 		/* This also handles the case where fgets does nothing */
 		badrequest(405, "Method Not Allowed", "Unsupported HTTP method.");
@@ -786,7 +794,7 @@ handle_request()
 	}
 
 	/* Interpret path into fspath. */
-	path = p - 1;
+	path = p;
 	{
 		char *fsp = fspath;
 		char *query_string = NULL;
@@ -973,6 +981,11 @@ handle_request()
 		if ((-1 == chdir(fn)) && (-1 == chdir("default"))) {
 			badrequest(404, "Not Found", "This host is not served here");
 		}
+	}
+
+	if (method == CONNECT) {
+		execl(connector, connector, path, NULL);
+		badrequest(500, "Unable to exec connector", strerror(errno));
 	}
 
 	/* Serve the file */
