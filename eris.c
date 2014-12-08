@@ -789,7 +789,7 @@ handle_request()
 	}
 
 	if (docgi) {
-		p[-2] = 0;
+		p[-1] = 0;
 		env("REQUEST_METHOD", request);
 	}
 
@@ -800,7 +800,6 @@ handle_request()
 		char *query_string = NULL;
 		
 		*(fsp++) = '.';
-		*(fsp++) = '/';
 		for (; *p != ' '; p += 1) {
 			char c = *p;
 
