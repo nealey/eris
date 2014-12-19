@@ -19,6 +19,7 @@ static struct mimeentry {
     "jpeg", "image/jpeg"}, {
     "jpg", "image/jpeg"}, {
     "svg", "image/svg+xml"}, {
+	"webm", "video/webm"}, {
     "mpeg", "video/mpeg"}, {
     "mpg", "video/mpeg"}, {
     "avi", "video/x-msvideo"}, {
