@@ -142,6 +142,10 @@ title "Logging busybox"
 (printf 'GET /index.html HTTP/1.1\r\nHost: host\r\n\r\n' | 
     PROTO=TCP TCPREMOTEADDR=[::1]:8765 $HTTPD >/dev/null) 2>&1 | grep -Fxq '[::1]:8765 200 6 host (null) (null) /index.html' && pass || fail
 
+title "Logging stunnel"
+(printf 'GET /index.html HTTP/1.1\r\nHost: host\r\n\r\n' | 
+    REMOTE_HOST=::1 REMOTE_PORT=8765 $HTTPD >/dev/null) 2>&1 | grep -Fxq '::1:8765 200 6 host (null) (null) /index.html' && pass || fail
+
 
 
 H "Options"
