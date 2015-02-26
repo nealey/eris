@@ -28,9 +28,9 @@
 #include "version.h"
 
 #ifdef __linux__
-#   include <sys/sendfile.h>
+#include <sys/sendfile.h>
 #else
-#   define sendfile(a, b, c, d) -1
+#define sendfile(a, b, c, d) -1
 #endif
 
 #ifndef min
@@ -50,28 +50,44 @@
 #define DUMP_p(v) DUMPf("%s = %p", #v, v)
 #define DUMP_buf(v, l) DUMPf("%s = %.*s", #v, (int)(l), v)
 
-/* Wait this long (seconds) for a valid HTTP request */
+/*
+ * Wait this long (seconds) for a valid HTTP request 
+ */
 #define READTIMEOUT 2
 
-/* Wait this long (seconds) for a non-file send to complete */
+/*
+ * Wait this long (seconds) for a non-file send to complete 
+ */
 #define WRITETIMEOUT 10
 
-/* Quit if we can't write at least this many bytes per second */
+/*
+ * Quit if we can't write at least this many bytes per second 
+ */
 #define MIN_WRITE_RATE 2560
 
-/* Wait this long for CGI to complete */
+/*
+ * Wait this long for CGI to complete 
+ */
 #define CGI_TIMEOUT	(5*60)
 
-/* How long each sendfile call can take */
+/*
+ * How long each sendfile call can take 
+ */
 #define SENDFILE_TIMEOUT ((int)(SIZE_MAX / MIN_WRITE_RATE))
 
-/* Maximum size of a request header (the whole block) */
+/*
+ * Maximum size of a request header (the whole block) 
+ */
 #define MAXHEADERLEN 8192
 
-/* Maximum size of a request line */
+/*
+ * Maximum size of a request line 
+ */
 #define MAXREQUESTLEN 2048
 
-/* Maximum number of header fields */
+/*
+ * Maximum number of header fields 
+ */
 #define MAXHEADERFIELDS 60
 
 #define BUFFER_SIZE 8192
@@ -88,11 +104,13 @@ int portappend = 0;
 char *connector = NULL;
 
 
-/* Variables that persist between requests */
-int			 cwd;
-int			 keepalive = 0;
-char		   *remote_addr = NULL;
-char		   *remote_ident = NULL;
+/*
+ * Variables that persist between requests 
+ */
+int cwd;
+int keepalive = 0;
+char *remote_addr = NULL;
+char *remote_ident = NULL;
 
 /*
  * Things that are really super convenient to have globally.
@@ -104,7 +122,7 @@ char *host;
 char *user_agent;
 char *refer;
 char *path;
-int   http_version;
+int http_version;
 char *content_type;
 size_t content_length;
 off_t range_start, range_end;
@@ -117,13 +135,12 @@ time_t ims;
 /** Log a request */
 void
 dolog(int code, off_t len)
-{							   /* write a log line to stderr */
+{				/* write a log line to stderr */
 	sanitize(host);
 	sanitize(user_agent);
 	sanitize(refer);
 
-	fprintf(stderr, "%s %d %lu %s %s %s %s\n",
-			remote_addr, code, (unsigned long) len, host, user_agent, refer, path);
+	fprintf(stderr, "%s %d %lu %s %s %s %s\n", remote_addr, code, (unsigned long) len, host, user_agent, refer, path);
 }
 
 void
@@ -131,7 +148,7 @@ header(unsigned int code, const char *httpcomment)
 {
 	printf("HTTP/1.%d %u %s\r\n", http_version, code, httpcomment);
 	printf("Server: %s\r\n", FNORD);
-	printf("Connection: %s\r\n", keepalive?"keep-alive":"close");
+	printf("Connection: %s\r\n", keepalive ? "keep-alive" : "close");
 
 }
 
@@ -154,8 +171,7 @@ badrequest(long code, const char *httpcomment, const char *message)
 	if (message) {
 		msglen = (strlen(message) * 2) + 15;
 
-		printf("Content-Length: %lu\r\nContent-Type: text/html\r\n\r\n",
-			   (unsigned long) msglen);
+		printf("Content-Length: %lu\r\nContent-Type: text/html\r\n\r\n", (unsigned long) msglen);
 		printf("<title>%s</title>%s", message, message);
 	}
 	printf("\r\n");
@@ -200,82 +216,86 @@ proto_getenv(char *proto, char *name)
 void
 get_ucspi_env()
 {
-	char		   *ucspi = getenv("PROTO");
+	char *ucspi = getenv("PROTO");
+	char *ip = NULL;
+	char *port = NULL;
 
 	if (ucspi) {
 		char *p;
 
-		/* Busybox, as usual, has the right idea */
+		/*
+		 * Busybox, as usual, has the right idea 
+		 */
 		if ((p = proto_getenv(ucspi, "REMOTEADDR"))) {
 			remote_addr = strdup(p);
 		} else {
-			char *ip   = proto_getenv(ucspi, "REMOTEIP");
-			char *port = proto_getenv(ucspi, "REMOTEPORT");
-
-			if (ip) {
-				char buf[80];
-
-				snprintf(buf, sizeof buf, "%s:%s", ip, port);
-				remote_addr = strdup(buf);
-			}
+			ip = proto_getenv(ucspi, "REMOTEIP");
+			port = proto_getenv(ucspi, "REMOTEPORT");
 		}
 
 		if ((p = proto_getenv(ucspi, "REMOTEINFO"))) {
 			remote_ident = strdup(p);
 		}
 	}
-	
-	if (! remote_addr) {
+
+	if (!ip) {
 		// stunnel
-		remote_addr = getenv("REMOTE_ADDR");
+		ip = getenv("REMOTE_HOST");
+		port = getenv("REMOTE_PORT");
+	}
+
+	if (ip) {
+		char buf[80];
+
+		snprintf(buf, sizeof buf, "%s:%s", ip, port);
+		remote_addr = strdup(buf);
 	}
 }
 
 void
 parse_options(int argc, char *argv[])
 {
-	int			 opt;
+	int opt;
 
 	while (-1 != (opt = getopt(argc, argv, "acdhkpro:v."))) {
 		switch (opt) {
-			case 'a':
-				doauth = 1;
-				break;
-			case 'c':
-				docgi = 1;
-				break;
-			case 'd':
-				doidx = 1;
-				break;
-			case '.':
-				nochdir = 1;
-				break;
-			case 'p':
-				portappend = 1;
-				break;
-			case 'r':
-				redirect = 1;
-				break;
-			case 'o':
-				connector = optarg;
-				break;
-			case 'v':
-				printf("%s\n", FNORD);
-				exit(0);
-			case 'h':
-			default:
-				fprintf(stderr, "Usage: %s [OPTIONS]\n",
-						argv[0]);
-				fprintf(stderr, "\n");
-				fprintf(stderr, "-a           Enable authentication\n");
-				fprintf(stderr, "-c           Enable CGI\n");
-				fprintf(stderr, "-d           Enable directory listing\n");
-				fprintf(stderr, "-.           Serve out of ./ (no vhosting)\n");
-				fprintf(stderr, "-p           Append port to hostname directory\n");
-				fprintf(stderr, "-r           Enable symlink redirection\n");
-				fprintf(stderr, "-o HANDLER   Path to HTTP CONNECT handler\n");
-				fprintf(stderr, "-v           Print version and exit\n");
-				exit(69);
+		case 'a':
+			doauth = 1;
+			break;
+		case 'c':
+			docgi = 1;
+			break;
+		case 'd':
+			doidx = 1;
+			break;
+		case '.':
+			nochdir = 1;
+			break;
+		case 'p':
+			portappend = 1;
+			break;
+		case 'r':
+			redirect = 1;
+			break;
+		case 'o':
+			connector = optarg;
+			break;
+		case 'v':
+			printf("%s\n", FNORD);
+			exit(0);
+		case 'h':
+		default:
+			fprintf(stderr, "Usage: %s [OPTIONS]\n", argv[0]);
+			fprintf(stderr, "\n");
+			fprintf(stderr, "-a           Enable authentication\n");
+			fprintf(stderr, "-c           Enable CGI\n");
+			fprintf(stderr, "-d           Enable directory listing\n");
+			fprintf(stderr, "-.           Serve out of ./ (no vhosting)\n");
+			fprintf(stderr, "-p           Append port to hostname directory\n");
+			fprintf(stderr, "-r           Enable symlink redirection\n");
+			fprintf(stderr, "-o HANDLER   Path to HTTP CONNECT handler\n");
+			fprintf(stderr, "-v           Print version and exit\n");
+			exit(69);
 		}
 	}
 }
@@ -286,234 +306,257 @@ parse_options(int argc, char *argv[])
 static void
 sigchld(int sig)
 {
-    while (waitpid(0, NULL, WNOHANG) > 0);
+	while (waitpid(0, NULL, WNOHANG) > 0);
 }
 
 static void
 sigalarm_cgi(int sig)
 {
-    /* send this out regardless of whether we've already sent a header,
-     * to maybe help with debugging */
-    badrequest(504, "Gateway Timeout", "The CGI is being too slow.");
+	/*
+	 * send this out regardless of whether we've already sent a header, to maybe help with debugging 
+	 */
+	badrequest(504, "Gateway Timeout", "The CGI is being too slow.");
 }
 
 static void
 cgi_child(const char *relpath)
 {
-    env("GATEWAY_INTERFACE", "CGI/1.1");
-    env("SERVER_SOFTWARE", FNORD);
-    env("REQUEST_URI", path);
-    env("SERVER_NAME", host);
-    env("SCRIPT_NAME", relpath);
-    env("REMOTE_ADDR", remote_addr);
-    env("REMOTE_IDENT", remote_ident);
-    if (content_length) {
-        char cl[20];
+	env("GATEWAY_INTERFACE", "CGI/1.1");
+	env("SERVER_SOFTWARE", FNORD);
+	env("REQUEST_URI", path);
+	env("SERVER_NAME", host);
+	env("SCRIPT_NAME", relpath);
+	env("REMOTE_ADDR", remote_addr);
+	env("REMOTE_IDENT", remote_ident);
+	if (content_length) {
+		char cl[20];
 
-        snprintf(cl, sizeof cl, "%llu", (unsigned long long) content_length);
-        env("CONTENT_LENGTH", cl);
-        env("CONTENT_TYPE", content_type);
-    }
+		snprintf(cl, sizeof cl, "%llu", (unsigned long long) content_length);
+		env("CONTENT_LENGTH", cl);
+		env("CONTENT_TYPE", content_type);
+	}
 
-    /* Try to change to CGI's directory */
-    {
-        char *delim = strrchr(relpath, '/');
+	/*
+	 * Try to change to CGI's directory 
+	 */
+	{
+		char *delim = strrchr(relpath, '/');
 
-        if (delim) {
-            *delim = '\0';
-            if (0 == chdir(relpath)) {
-                relpath = delim + 1;
-            }
-        }
-    }
+		if (delim) {
+			*delim = '\0';
+			if (0 == chdir(relpath)) {
+				relpath = delim + 1;
+			}
+		}
+	}
 
-    execl(relpath, relpath, NULL);
-    exit(1);
+	execl(relpath, relpath, NULL);
+	exit(1);
 }
 
 void
 cgi_parent(int cin, int cout, int passthru)
 {
-    char            cgiheader[BUFFER_SIZE];
-    size_t          cgiheaderlen = 0;
-    FILE           *cinf = fdopen(cin, "rb");
-    size_t          size = 0;
-    int             header_sent = 0;
-    int             code = 200;
+	char cgiheader[BUFFER_SIZE];
+	size_t cgiheaderlen = 0;
+	FILE *cinf = fdopen(cin, "rb");
+	size_t size = 0;
+	int header_sent = 0;
+	int code = 200;
 
-    fcntl(cin, F_SETFL, O_NONBLOCK);
-    signal(SIGCHLD, sigchld);
-    signal(SIGPIPE, SIG_IGN);   /* NO! no signal! */
-    signal(SIGALRM, sigalarm_cgi);
+	fcntl(cin, F_SETFL, O_NONBLOCK);
+	signal(SIGCHLD, sigchld);
+	signal(SIGPIPE, SIG_IGN);	/* NO! no signal! */
+	signal(SIGALRM, sigalarm_cgi);
 
-    while (1) {
-        int             nfds;
-        fd_set          rfds, wfds;
-        
-        FD_ZERO(&rfds);
-        FD_ZERO(&wfds);
-        FD_SET(cin, &rfds);
-        nfds = cin;
-        
-        if (content_length) {
-            /* have post data */
-            FD_SET(cout, &wfds);
-            if (cout > nfds) {
-                nfds = cout;
-            }
-        } else if (cout >= 0) {
-            close(cout);   /* no post data */
-            cout = -1;
-        }
+	while (1) {
+		int nfds;
+		fd_set rfds, wfds;
 
-        alarm(CGI_TIMEOUT);
-        if (-1 == select(nfds+1, &rfds, &wfds, NULL, NULL)) {
-            break;
-        }
+		FD_ZERO(&rfds);
+		FD_ZERO(&wfds);
+		FD_SET(cin, &rfds);
+		nfds = cin;
 
-        if (FD_ISSET(cin, &rfds)) {
-            if (passthru) {
-                /* Pass everything through verbatim */
-                size_t len;
+		if (content_length) {
+			/*
+			 * have post data 
+			 */
+			FD_SET(cout, &wfds);
+			if (cout > nfds) {
+				nfds = cout;
+			}
+		} else if (cout >= 0) {
+			close(cout);	/* no post data */
+			cout = -1;
+		}
 
-                /* Re-use this big buffer */
-                len = fread(cgiheader, 1, sizeof cgiheader, cinf);
-                if (0 == len) {
-                    /* CGI is done */
-                    break;
-                }
-                fwrite(cgiheader, 1, len, stdout);
+		alarm(CGI_TIMEOUT);
+		if (-1 == select(nfds + 1, &rfds, &wfds, NULL, NULL)) {
+			break;
+		}
 
-                /* Naively assume the CGI knows best about sending stuff */
-                fflush(stdout);
-                size += len;
-            } else {
-                /* Interpret header fields */
-                size_t readlen = (sizeof cgiheader) - cgiheaderlen;
+		if (FD_ISSET(cin, &rfds)) {
+			if (passthru) {
+				/*
+				 * Pass everything through verbatim 
+				 */
+				size_t len;
 
-                if (NULL == fgets(cgiheader + cgiheaderlen, readlen, cinf)) {
-                    /* EOF or error */
-                    badrequest(500, "CGI Error", "CGI output too weird");
-                }
-                cgiheaderlen = strlen(cgiheader);
+				/*
+				 * Re-use this big buffer 
+				 */
+				len = fread(cgiheader, 1, sizeof cgiheader, cinf);
+				if (0 == len) {
+					/*
+					 * CGI is done 
+					 */
+					break;
+				}
+				fwrite(cgiheader, 1, len, stdout);
 
-                if ('\n' == cgiheader[cgiheaderlen - 1]) {
-                    /* We read a whole line */
-                    size_t len;
-                    char *val;
+				/*
+				 * Naively assume the CGI knows best about sending stuff 
+				 */
+				fflush(stdout);
+				size += len;
+			} else {
+				/*
+				 * Interpret header fields 
+				 */
+				size_t readlen = (sizeof cgiheader) - cgiheaderlen;
 
-                    len = extract_header_field(cgiheader, &val, 0);
-                    if (! len) {
-                        /* We've read the entire header block */
-                        passthru = 1;
-                        eoh();
-                    } else {
-                        if (! header_sent) {
-                            if (! strcasecmp(cgiheader, "Location")) {
-                                header(302, "CGI Redirect");
-                                printf("%s: %s\r\n\r\n", cgiheader, val);
-                                dolog(302, 0);
-                                exit(0);
-                            } else if (! strcasecmp(cgiheader, "Status")) {
-                                char *txt;
-                                
-                                if (val) {
-                                    code = (int)strtol(val, &txt, 10);
-                                } else {
-                                    code = 0;
-                                }
-                                if (code < 100) {
-                                    header(500, "Internal Error");
-                                    printf("CGI returned Status: %d\n", code);
-                                    dolog(500, 0);
-                                    exit(0);
-                                }
-                                for (; *txt == ' '; txt += 1);
-                                header(code, txt);
-                            } else {
-                                header(200, "OK");
-                                printf("Pragma: no-cache\r\n");
-                            }
-                            header_sent = 1;
-                        }
-                        printf("%s: %s\r\n", cgiheader, val);
-                        cgiheaderlen = 0;
-                    }
-                }
-            }
-        } else if (FD_ISSET(cout, &wfds)) {
-            /*
-             * write to cgi the post data 
-             */
-            if (content_length) {
-                size_t len;
-                char buf[BUFFER_SIZE];
-                size_t nmemb = min(BUFFER_SIZE, content_length);
-                char *p = buf;
+				if (NULL == fgets(cgiheader + cgiheaderlen, readlen, cinf)) {
+					/*
+					 * EOF or error 
+					 */
+					badrequest(500, "CGI Error", "CGI output too weird");
+				}
+				cgiheaderlen = strlen(cgiheader);
 
-                len = fread(buf, 1, nmemb, stdin);
-                if (len < 1) {
-                    break;
-                }
-                content_length -= len;
+				if ('\n' == cgiheader[cgiheaderlen - 1]) {
+					/*
+					 * We read a whole line 
+					 */
+					size_t len;
+					char *val;
 
-                while (len > 0) {
-                    size_t wlen = write(cout, p, len);
+					len = extract_header_field(cgiheader, &val, 0);
+					if (!len) {
+						/*
+						 * We've read the entire header block 
+						 */
+						passthru = 1;
+						eoh();
+					} else {
+						if (!header_sent) {
+							if (!strcasecmp(cgiheader, "Location")) {
+								header(302, "CGI Redirect");
+								printf("%s: %s\r\n\r\n", cgiheader, val);
+								dolog(302, 0);
+								exit(0);
+							} else if (!strcasecmp(cgiheader, "Status")) {
+								char *txt;
 
-                    if (wlen == -1) {
-                        break;
-                    }
-                    len -= wlen;
-                    p += wlen;
-                }
-            } else {
-                close(cout);
-            }
-        }
-    }
+								if (val) {
+									code = (int) strtol(val, &txt, 10);
+								} else {
+									code = 0;
+								}
+								if (code < 100) {
+									header(500, "Internal Error");
+									printf("CGI returned Status: %d\n", code);
+									dolog(500, 0);
+									exit(0);
+								}
+								for (; *txt == ' '; txt += 1);
+								header(code, txt);
+							} else {
+								header(200, "OK");
+								printf("Pragma: no-cache\r\n");
+							}
+							header_sent = 1;
+						}
+						printf("%s: %s\r\n", cgiheader, val);
+						cgiheaderlen = 0;
+					}
+				}
+			}
+		} else if (FD_ISSET(cout, &wfds)) {
+			/*
+			 * write to cgi the post data 
+			 */
+			if (content_length) {
+				size_t len;
+				char buf[BUFFER_SIZE];
+				size_t nmemb = min(BUFFER_SIZE, content_length);
+				char *p = buf;
 
-    fflush(stdout);
-    dolog(code, size);
+				len = fread(buf, 1, nmemb, stdin);
+				if (len < 1) {
+					break;
+				}
+				content_length -= len;
+
+				while (len > 0) {
+					size_t wlen = write(cout, p, len);
+
+					if (wlen == -1) {
+						break;
+					}
+					len -= wlen;
+					p += wlen;
+				}
+			} else {
+				close(cout);
+			}
+		}
+	}
+
+	fflush(stdout);
+	dolog(code, size);
 }
 
 void
 serve_cgi(char *relpath)
 {
-    int             pid;
-    int             cin[2];
-    int             cout[2];
+	int pid;
+	int cin[2];
+	int cout[2];
 
-    if (pipe(cin) || pipe(cout)) {
-        badrequest(500, "Internal Server Error", "Server Resource problem.");
-    }
+	if (pipe(cin) || pipe(cout)) {
+		badrequest(500, "Internal Server Error", "Server Resource problem.");
+	}
 
-    pid = fork();
-    if (-1 == pid) {
-        badrequest(500, "Internal Server Error", "Unable to fork.");
-    }
-    if (pid) {
-        close(cin[1]);
-        close(cout[0]);
+	pid = fork();
+	if (-1 == pid) {
+		badrequest(500, "Internal Server Error", "Unable to fork.");
+	}
+	if (pid) {
+		close(cin[1]);
+		close(cout[0]);
 
-        /* Eris is not this smart yet */
-        keepalive = 0;
+		/*
+		 * Eris is not this smart yet 
+		 */
+		keepalive = 0;
 
-        cgi_parent(cin[0], cout[1], 0);
+		cgi_parent(cin[0], cout[1], 0);
 
-        exit(0);
-    } else {
-        close(cwd);
-        close(cout[1]);
-        close(cin[0]);
+		exit(0);
+	} else {
+		close(cwd);
+		close(cout[1]);
+		close(cin[0]);
 
-        dup2(cout[0], 0);
-        dup2(cin[1], 1);
+		dup2(cout[0], 0);
+		dup2(cin[1], 1);
 
-        close(cout[0]);
-        close(cin[1]);
+		close(cout[0]);
+		close(cin[1]);
 
-        cgi_child(relpath);
-    }
+		cgi_child(relpath);
+	}
 }
 
 /*
@@ -521,20 +564,26 @@ serve_cgi(char *relpath)
  */
 
 ssize_t
-fake_sendfile(int out_fd, int in_fd, off_t *offset, size_t count)
+fake_sendfile(int out_fd, int in_fd, off_t * offset, size_t count)
 {
 	char buf[BUFFER_SIZE];
 	ssize_t l, m;
 
-	/* is mmap quicker?  does it matter? */
+	/*
+	 * is mmap quicker? does it matter? 
+	 */
 	if (-1 == lseek(in_fd, *offset, SEEK_SET)) {
-		/* We're screwed.  The most helpful thing we can do now is die. */
+		/*
+		 * We're screwed.  The most helpful thing we can do now is die. 
+		 */
 		fprintf(stderr, "Unable to seek.  Dying.\n");
 		exit(0);
 	}
 	l = read(in_fd, buf, min(count, sizeof buf));
 	if (-1 == l) {
-		/* Also screwed. */
+		/*
+		 * Also screwed. 
+		 */
 		fprintf(stderr, "Unable to read an open file.  Dying.\n");
 		exit(0);
 	}
@@ -543,13 +592,15 @@ fake_sendfile(int out_fd, int in_fd, off_t *offset, size_t count)
 	while (l) {
 		m = write(out_fd, buf, l);
 		if (-1 == m) {
-			/* ALSO screwed. */
+			/*
+			 * ALSO screwed. 
+			 */
 			fprintf(stderr, "Unable to write to client: %m (req %s).  Dying.\n", path);
 			exit(0);
 		}
 		l -= m;
 	}
-	
+
 	return l;
 }
 
@@ -595,7 +646,7 @@ serve_file(int fd, char *filename, struct stat *st)
 		return;
 	}
 
-	for (remain = len; remain; ) {
+	for (remain = len; remain;) {
 		size_t count = min(remain, SIZE_MAX);
 		ssize_t sent;
 
@@ -635,31 +686,31 @@ serve_idx(int fd, char *path)
 	}
 
 	while ((de = readdir(d))) {
-		char		   *name = de->d_name;
-		char			symlink[PATH_MAX];
-		struct stat	 st;
+		char *name = de->d_name;
+		char symlink[PATH_MAX];
+		struct stat st;
 
 		if (name[0] == '.') {
-			continue;   /* hidden files -> skip */
+			continue;	/* hidden files -> skip */
 		}
 		if (lstat(name, &st)) {
-			continue;   /* can't stat -> skip */
+			continue;	/* can't stat -> skip */
 		}
 
 		if (S_ISDIR(st.st_mode)) {
 			printf("[DIR]	 ");
 		} else if (S_ISLNK(st.st_mode)) {
-			ssize_t		 len = readlink(de->d_name, symlink, (sizeof symlink) - 1);
+			ssize_t len = readlink(de->d_name, symlink, (sizeof symlink) - 1);
 
 			if (len < 1) {
 				continue;
 			}
 			name = symlink;
-			printf("[LNK]	 ");		/* symlink */
+			printf("[LNK]	 ");	/* symlink */
 		} else if (S_ISREG(st.st_mode)) {
-			printf("%10llu", (unsigned long long)st.st_size);
+			printf("%10llu", (unsigned long long) st.st_size);
 		} else {
-			continue;   /* not a file we can provide -> skip */
+			continue;	/* not a file we can provide -> skip */
 		}
 
 		/*
@@ -685,35 +736,45 @@ find_serve_file(char *relpath)
 	int fd;
 	struct stat st;
 
-	/* Open fspath.  If that worked, */
+	/*
+	 * Open fspath.  If that worked, 
+	 */
 	if ((fd = open(relpath, O_RDONLY)) > -1) {
 		fstat(fd, &st);
-		/* If it is a directory, */
+		/*
+		 * If it is a directory, 
+		 */
 		if (S_ISDIR(st.st_mode)) {
 			char path2[PATH_MAX];
 			int fd2;
 
-			/* Redirect if it doesn't end with / */
-			if (! endswith(path, "/")) {
+			/*
+			 * Redirect if it doesn't end with / 
+			 */
+			if (!endswith(path, "/")) {
 				header(301, "Redirect");
 				printf("Location: %s/\r\n", path);
 				eoh();
 				return;
 			}
-	
-			/* Open relpath + "index.html".  If that worked,*/
-			 snprintf(path2, sizeof path2, "%sindex.html", relpath);
-			 if ((fd2 = open(path2, O_RDONLY)) > -1) {
-				/* serve that file and return. */
+
+			/*
+			 * Open relpath + "index.html".  If that worked,
+			 */
+			snprintf(path2, sizeof path2, "%sindex.html", relpath);
+			if ((fd2 = open(path2, O_RDONLY)) > -1) {
+				/*
+				 * serve that file and return. 
+				 */
 				fstat(fd2, &st);
 				serve_file(fd2, path2, &st);
 				close(fd2);
 				close(fd);
 				return;
-			 } else {
+			} else {
 				if (docgi) {
 					snprintf(path2, sizeof path2, "%sindex.cgi", relpath);
-					if (! stat(path2, &st)) {
+					if (!stat(path2, &st)) {
 						return serve_cgi(path2);
 					}
 				}
@@ -723,7 +784,7 @@ find_serve_file(char *relpath)
 					return;
 				}
 				return not_found();
-			 }
+			}
 		} else {
 			if (docgi && endswith(relpath, ".cgi")) {
 				close(fd);
@@ -739,7 +800,7 @@ find_serve_file(char *relpath)
 				p += 4;
 				env("PATH_INFO", p);
 				*p = 0;
-				if (! stat(relpath, &st)) {
+				if (!stat(relpath, &st)) {
 					close(fd);
 					return serve_cgi(relpath);
 				}
@@ -752,12 +813,14 @@ find_serve_file(char *relpath)
 void
 handle_request()
 {
-	char  request[MAXREQUESTLEN];
-	char  fspath[PATH_MAX];
-	char  buf[MAXHEADERLEN];
+	char request[MAXREQUESTLEN];
+	char fspath[PATH_MAX];
+	char buf[MAXHEADERLEN];
 	char *p;
 
-	/* Initialize globals */
+	/*
+	 * Initialize globals 
+	 */
 	host = NULL;
 	user_agent = NULL;
 	refer = NULL;
@@ -770,10 +833,14 @@ handle_request()
 
 	alarm(READTIMEOUT);
 
-	/* Read request line first */
+	/*
+	 * Read request line first 
+	 */
 	request[0] = 0;
 	if (NULL == fgets(request, sizeof request, stdin)) {
-		/* They must have hung up! */
+		/*
+		 * They must have hung up! 
+		 */
 		exit(0);
 	}
 	if (!strncmp(request, "GET /", 5)) {
@@ -789,7 +856,9 @@ handle_request()
 		method = CONNECT;
 		p = request + 8;
 	} else {
-		/* This also handles the case where fgets does nothing */
+		/*
+		 * This also handles the case where fgets does nothing 
+		 */
 		badrequest(405, "Method Not Allowed", "Unsupported HTTP method.");
 	}
 
@@ -798,50 +867,54 @@ handle_request()
 		env("REQUEST_METHOD", request);
 	}
 
-	/* Interpret path into fspath. */
+	/*
+	 * Interpret path into fspath. 
+	 */
 	path = p;
 	{
 		char *fsp = fspath;
 		char *query_string = NULL;
-		
+
 		*(fsp++) = '.';
 		for (; *p != ' '; p += 1) {
 			char c = *p;
 
 			switch (c) {
-				case 0:
-					badrequest(413, "Request Entity Too Large", "The HTTP request was too long");
-				case '\n':
-					badrequest(505, "Version Not Supported", "HTTP/0.9 not supported");
-				case '?':
-					query_string = p + 1;
-					break;
-				case '%':
-					if ((! query_string) && p[1] && p[2]) {
-						int a = fromhex(p[1]);
-						int b = fromhex(p[2]);
+			case 0:
+				badrequest(413, "Request Entity Too Large", "The HTTP request was too long");
+			case '\n':
+				badrequest(505, "Version Not Supported", "HTTP/0.9 not supported");
+			case '?':
+				query_string = p + 1;
+				break;
+			case '%':
+				if ((!query_string) && p[1] && p[2]) {
+					int a = fromhex(p[1]);
+					int b = fromhex(p[2]);
 
-						if ((a >= 0) && (b >= 0)) {
-							c = (a << 4) | b;
-							p += 2;
-						}
+					if ((a >= 0) && (b >= 0)) {
+						c = (a << 4) | b;
+						p += 2;
 					}
-					break;
+				}
+				break;
 			}
 
-			if ((! query_string) && (fsp - fspath + 1 < sizeof fspath)) {
+			if ((!query_string) && (fsp - fspath + 1 < sizeof fspath)) {
 				*(fsp++) = c;
 			}
 		}
 		*fsp = 0;
 
-		/* Change "/." to "/:" to keep "hidden" files such and prevent directory traversal */
+		/*
+		 * Change "/." to "/:" to keep "hidden" files such and prevent directory traversal 
+		 */
 		while ((fsp = strstr(fspath, "/."))) {
-			*(fsp+1) = ':';
+			*(fsp + 1) = ':';
 		}
 
 
-		*(p++) = 0;		 /* NULL-terminate path */
+		*(p++) = 0;	/* NULL-terminate path */
 
 		if (docgi && query_string) {
 			env("QUERY_STRING", query_string);
@@ -849,10 +922,10 @@ handle_request()
 	}
 
 	http_version = -1;
-	if (! strncmp(p, "HTTP/1.", 7) && p[8] && ((p[8] == '\r') || (p[8] == '\n'))) {
+	if (!strncmp(p, "HTTP/1.", 7) && p[8] && ((p[8] == '\r') || (p[8] == '\n'))) {
 		http_version = p[7] - '0';
 	}
-	if (! ((http_version == 0) || (http_version == 1))) {
+	if (!((http_version == 0) || (http_version == 1))) {
 		http_version = 0;
 		badrequest(505, "Version Not Supported", "HTTP version not supported");
 	}
@@ -866,21 +939,25 @@ handle_request()
 		env("SERVER_PROTOCOL", p);
 	}
 
-	/* Read header fields */
+	/*
+	 * Read header fields 
+	 */
 	{
-		char  *base = buf;
-		char  *lastchar = base + (sizeof buf) - 2;
-		int	nheaders = 0;
+		char *base = buf;
+		char *lastchar = base + (sizeof buf) - 2;
+		int nheaders = 0;
 
 		*lastchar = 0;
 		while (1) {
-			char   *cgi_name = base;
-			char   *p;
-			int	 plen = (sizeof buf) - (base - buf);
-			char   *name, *val;
-			size_t  len;
+			char *cgi_name = base;
+			char *p;
+			int plen = (sizeof buf) - (base - buf);
+			char *name, *val;
+			size_t len;
 
-			/* 40 is totally arbitrary here. */
+			/*
+			 * 40 is totally arbitrary here. 
+			 */
 			if (plen < 40) {
 				badrequest(431, "Request Header Too Large", "The HTTP header block was too large");
 			}
@@ -899,55 +976,67 @@ handle_request()
 			}
 
 			len = extract_header_field(p, &val, 1);
-			if (! len) {
-				/* blank line */
+			if (!len) {
+				/*
+				 * blank line 
+				 */
 				break;
 			}
-			if (! val) {
+			if (!val) {
 				badrequest(400, "Invalid header", "Unable to parse header block");
 			}
 
 			name = p;
 
-			/* Set up CGI environment variables */
+			/*
+			 * Set up CGI environment variables 
+			 */
 			if (docgi) {
 				env(cgi_name, val);
 			}
 
-			/* By default, re-use buffer space */
+			/*
+			 * By default, re-use buffer space 
+			 */
 			base = cgi_name;
 
-			/* Handle special header fields */
-			if (! strcmp(name, "HOST")) {
+			/*
+			 * Handle special header fields 
+			 */
+			if (!strcmp(name, "HOST")) {
 				host = val;
 				base = name + len + 1;
-			} else if (! strcmp(name, "USER_AGENT")) {
+			} else if (!strcmp(name, "USER_AGENT")) {
 				user_agent = val;
 				base = name + len + 1;
-			} else if (! strcmp(name, "REFERER")) {
+			} else if (!strcmp(name, "REFERER")) {
 				refer = val;
 				base = name + len + 1;
-			} else if (! strcmp(name, "CONTENT_TYPE")) {
+			} else if (!strcmp(name, "CONTENT_TYPE")) {
 				content_type = val;
 				base = name + len + 1;
-			} else if (! strcmp(name, "CONTENT_LENGTH")) {
+			} else if (!strcmp(name, "CONTENT_LENGTH")) {
 				content_length = (size_t) strtoull(val, NULL, 10);
-			} else if (! strcmp(name, "CONNECTION")) {
-				if (! strcasecmp(val, "keep-alive")) {
+			} else if (!strcmp(name, "CONNECTION")) {
+				if (!strcasecmp(val, "keep-alive")) {
 					keepalive = 1;
 				} else {
 					keepalive = 0;
 				}
-			} else if (! strcmp(name, "IF_MODIFIED_SINCE")) {
+			} else if (!strcmp(name, "IF_MODIFIED_SINCE")) {
 				ims = timerfc(val);
-			} else if (! strcmp(name, "RANGE")) {
-				/* Range: bytes=17-23 */
-				/* Range: bytes=23- */
-				if (! strncmp(val, "bytes=", 6)) {
+			} else if (!strcmp(name, "RANGE")) {
+				/*
+				 * Range: bytes=17-23 
+				 */
+				/*
+				 * Range: bytes=23- 
+				 */
+				if (!strncmp(val, "bytes=", 6)) {
 					p = val + 6;
 					range_start = (off_t) strtoull(p, &p, 10);
 					if (*p == '-') {
-						range_end = (off_t) strtoull(p+1, NULL, 10);
+						range_end = (off_t) strtoull(p + 1, NULL, 10);
 					} else {
 						range_end = 0;
 					}
@@ -956,8 +1045,10 @@ handle_request()
 		}
 	}
 
-	/* Try to change into the appropriate directory */
-	if (! nochdir) {
+	/*
+	 * Try to change into the appropriate directory 
+	 */
+	if (!nochdir) {
 		char fn[PATH_MAX];
 
 		if (host) {
@@ -970,15 +1061,15 @@ handle_request()
 		}
 		for (p = fn; *p; p += 1) {
 			switch (*p) {
-				case '/':
-					*p = ':';
-					break;
-				case ':':
-					*p = 0;
-					break;
-				case 'A'...'Z':
-					*p ^= ' ';
-					break;
+			case '/':
+				*p = ':';
+				break;
+			case ':':
+				*p = 0;
+				break;
+			case 'A' ... 'Z':
+				*p ^= ' ';
+				break;
 			}
 		}
 
@@ -992,7 +1083,9 @@ handle_request()
 		badrequest(500, "Unable to exec connector", strerror(errno));
 	}
 
-	/* Serve the file */
+	/*
+	 * Serve the file 
+	 */
 	alarm(WRITETIMEOUT);
 	find_serve_file(fspath);
 	fflush(stdout);
@@ -1012,7 +1105,7 @@ main(int argc, char *argv[], const char *const *envp)
 
 	while (1) {
 		handle_request();
-		if (! keepalive) {
+		if (!keepalive) {
 			break;
 		}
 		if (-1 == fchdir(cwd)) {
