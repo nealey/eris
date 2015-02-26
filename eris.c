@@ -212,6 +212,12 @@ get_ucspi_env()
 			char *ip   = proto_getenv(ucspi, "REMOTEIP");
 			char *port = proto_getenv(ucspi, "REMOTEPORT");
 
+			if (! ip) {
+				// stunnel
+				ip = getenv("REMOTE_HOST");
+				port = getenv("REMOTE_PORT");
+			}
+
 			if (ip) {
 				char buf[80];
 

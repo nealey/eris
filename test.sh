@@ -4,6 +4,10 @@
 : ${HTTPD_CGI:=./eris -c}
 : ${HTTPD_IDX:=./eris -d}
 
+tests=0
+successes=0
+failures=0
+
 H () {
     section="$*"
     printf "\n%-20s " "$*"
