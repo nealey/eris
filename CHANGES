@@ -1,3 +1,9 @@
+4.3.1:
+	Add .webm mime type
+
+4.3:
+	Very stupid CONNECT handling mechanism.
+
 4.2:
 	Remove some bugs in CGI's "Status:" code (reported by Alyssa Milburn).
 	Make extract_header_field less fragile (reported by Alyssa Milburn).
