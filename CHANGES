@@ -1,3 +1,6 @@
+4.4:
+	Also log when called from stunnel
+
 4.3.1:
 	Add .webm mime type
 
