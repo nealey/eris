@@ -238,17 +238,14 @@ get_ucspi_env()
 		}
 	}
 
-	if (!ip) {
-		// stunnel
-		ip = getenv("REMOTE_HOST");
-		port = getenv("REMOTE_PORT");
-	}
-
 	if (ip) {
 		char buf[80];
 
 		snprintf(buf, sizeof buf, "%s:%s", ip, port);
 		remote_addr = strdup(buf);
+	} else {
+		// stunnel
+		remote_addr = getenv("REMOTE_ADDR");
 	}
 }
 
