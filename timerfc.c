@@ -40,9 +40,6 @@
 #include <string.h>
 #include "timerfc.h"
 
-static const char days[] = "SunMonTueWedThuFriSat";
-static const char months[] = "JanFebMarAprMayJunJulAugSepOctNovDec";
-
 time_t
 timerfc(const char *s)
 {
