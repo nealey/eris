@@ -15,5 +15,7 @@ RUN adduser -S -u 800 -G www www
 RUN mkdir /www
 WORKDIR /www
 
+EXPOSE 80
+
 CMD ["s6-tcpserver", "-u", "80", "-g", "80", "0.0.0.0", "80", "/usr/bin/eris", "-."]
 
