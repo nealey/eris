@@ -1,9 +1,9 @@
 #! /bin/sh
 
-## Breaking fnord 1.10
+## Breaking fnord 1.11
 
 if [ "$1" = "clean" ]; then
-    rm -rf fnord-1.10
+    rm -rf fnord-1.11
 fi
 
 # Set HTTPD= to test something else
@@ -36,16 +36,16 @@ d () {
 }
 
 
-if [ ! -f fnord-1.10.tar.bz2 ]; then
-    wget http://www.fefe.de/fnord/fnord-1.10.tar.bz2
+if [ ! -f fnord-1.11.tar.bz2 ]; then
+    wget http://www.fefe.de/fnord/fnord-1.11.tar.bz2
 fi
 
-if [ ! -f fnord-1.10/httpd.c ]; then
-    rm -rf fnord-1.10
-    bzcat fnord-1.10.tar.bz2 | tar xf -
+if [ ! -f fnord-1.11/httpd.c ]; then
+    rm -rf fnord-1.11
+    bzcat fnord-1.11.tar.bz2 | tar xf -
 fi
 
-cd fnord-1.10
+cd fnord-1.11
 
 # Comment this out if you want to build with diet libc
 make DIET=
