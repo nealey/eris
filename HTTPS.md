@@ -2,7 +2,7 @@ SSL with eris
 =============
 
 Eris does not care what transport is in use: that job is left to the invoking
-program (eg. tcpserver).
+program (e.g. tcpserver).
 
 In the past you could use `sslio` with `tcpsvd`,
 but `sslio` has not been updated in a long time,

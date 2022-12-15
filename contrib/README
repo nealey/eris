@@ -5,5 +5,5 @@ a little easier.
 Quite a lot of web software these days is written to work with
 Apache and nothing else.  PHP is a notable example: even PHP-CGI,
 as shipped on Debian, requires special environment variables that
-only Apache sets, and doesn't work with eg. mathopd, boa, busybox
+only Apache sets, and doesn't work with, e.g. mathopd, boa, busybox
 httpd, or eris.
