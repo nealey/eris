@@ -1,3 +1,5 @@
+	fix punctuation and typo
+
 4.4:
 	Also log when called from stunnel
 
@@ -155,7 +157,7 @@
 	Olaf: I changed my initial CGI-interface to NOT use the filesystem but
 		two pipes.
 	Add whole-host redirect (see README)
-	Olaf: added direcory-lists and "index.cgi" support (normal CGI only !
+	Olaf: added directory-lists and "index.cgi" support (normal CGI only !
 		"nph-index.cgi" is not supported). Fixed some problematic parts in the
 		CGI-interface (\n -> \r\n converter for http-header and CGI crash
 		handling)
