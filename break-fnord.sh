@@ -14,6 +14,7 @@ case ${HTTPD:=./fnord} in
         ;;
 esac
 
+tests=0
 title() {
     printf "%-50s: " "$1"
     tests=$(expr $tests + 1)
