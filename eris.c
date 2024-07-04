@@ -291,6 +291,7 @@ parse_options(int argc, char *argv[])
 			fprintf(stderr, "-c           Enable CGI\n");
 			fprintf(stderr, "-d           Enable directory listing\n");
 			fprintf(stderr, "-.           Serve out of ./ (no vhosting)\n");
+			fprintf(stderr, "-h           Print this message and exit\n");
 			fprintf(stderr, "-p           Append port to hostname directory\n");
 			fprintf(stderr, "-r           Enable symlink redirection\n");
 			fprintf(stderr, "-o HANDLER   Path to HTTP CONNECT handler\n");
